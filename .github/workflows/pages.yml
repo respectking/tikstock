@@ -39,11 +39,19 @@ jobs:
         run: |
           git config user.name  "stockornot-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Rebasing loses to a conflict whenever someone else touched the same
+          # data file mid-run. Instead: fetch the tip, move HEAD onto it keeping
+          # our freshly built files staged, and commit on top. The run that just
+          # spent an hour fetching wins, and no merge is ever attempted.
+          git fetch origin "${GITHUB_REF_NAME}"
           git add stock sitemap.xml robots.txt
+          git reset --soft FETCH_HEAD
+          git add stock sitemap.xml robots.txt
+
           if git diff --cached --quiet; then
-            echo "Pages unchanged."
+            echo "Nothing changed."
           else
-            git commit -m "Rebuild company pages"
-            git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
+            git commit -m "Rebuild company pages $(date -u +'%Y-%m-%d')"
             git push origin "HEAD:${GITHUB_REF_NAME}"
           fi
