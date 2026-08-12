@@ -1,5 +1,5 @@
 /* ==========================================================================
-   TikStock — daily data refresh
+   StockOrNot — daily data refresh
    --------------------------------------------------------------------------
    Runs in GitHub Actions, never in the browser. Builds data/snapshot.json from:
 
@@ -29,7 +29,7 @@ const FILING_DIR = path.join(DATA, "filings");
 const DETAIL_DIR = path.join(DATA, "detail");
 
 const TOKEN = process.env.FINNHUB_TOKEN;
-const UA    = process.env.SEC_USER_AGENT || "TikStock open-source project contact@example.com";
+const UA    = process.env.SEC_USER_AGENT || "StockOrNot open-source project contact@example.com";
 const LIMIT = process.env.LIMIT ? Number(process.env.LIMIT) : 0;
 const SKIP_FILINGS = process.env.SKIP_FILINGS === "1";
 
@@ -209,9 +209,34 @@ async function conceptFallback(cik, concept) {
    server rather than in the browser. Weekly closes keep the file small enough
    to ship one per company. */
 
-async function priceHistory(ticker) {
+const BROWSER_UA =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
+
+/* Yahoo's chart endpoint gives weekly closes in one request and needs no key.
+   Stooq is the backstop; between them almost every ticker resolves. */
+async function fromYahoo(ticker) {
+  const sym = ticker.replace(/\./g, '-');
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=5y&interval=1wk`;
+  const json = await getJSON(url, { headers: { 'User-Agent': BROWSER_UA }, tries: 2, label: `yahoo ${ticker}` });
+  const res = json?.chart?.result?.[0];
+  const stamps = res?.timestamp;
+  const closes = res?.indicators?.quote?.[0]?.close;
+  if (!Array.isArray(stamps) || !Array.isArray(closes)) return null;
+
+  const points = [];
+  for (let i = 0; i < stamps.length; i++) {
+    const c = closes[i];
+    if (typeof c !== 'number' || !isFinite(c) || c <= 0) continue;
+    points.push([new Date(stamps[i] * 1000).toISOString().slice(0, 10), +c.toFixed(2)]);
+  }
+  return points.length > 20 ? points : null;
+}
+
+async function fromStooq(ticker) {
   const sym = ticker.toLowerCase().replace(/\./g, '-') + '.us';
-  const csv = await getText(`https://stooq.com/q/d/l/?s=${sym}&i=d`, { label: `stooq ${ticker}` });
+  const csv = await getText(`https://stooq.com/q/d/l/?s=${sym}&i=w`, {
+    headers: { 'User-Agent': BROWSER_UA }, label: `stooq ${ticker}`
+  });
   if (!csv || csv.length < 200 || /No data|Exceeded/i.test(csv.slice(0, 120))) return null;
 
   const lines = csv.trim().split(/\r?\n/);
@@ -221,21 +246,17 @@ async function priceHistory(ticker) {
 
   const cutoff = new Date(Date.now() - 5.2 * 365 * 864e5).toISOString().slice(0, 10);
   const points = [];
-  let lastWeek = null;
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(',');
     const date = cols[iDate], close = Number(cols[iClose]);
     if (!date || date < cutoff || !isFinite(close) || close <= 0) continue;
-    /* one point per ISO week, plus always the final day */
-    const wk = date.slice(0, 4) + '-' + Math.floor(Number(date.slice(5, 7)) * 4.35 + Number(date.slice(8, 10)) / 7);
-    if (wk !== lastWeek) { points.push([date, +close.toFixed(2)]); lastWeek = wk; }
-  }
-  const lastRow = lines[lines.length - 1].split(',');
-  const lastClose = Number(lastRow[iClose]);
-  if (points.length && isFinite(lastClose) && points[points.length - 1][0] !== lastRow[iDate]) {
-    points.push([lastRow[iDate], +lastClose.toFixed(2)]);
+    points.push([date, +close.toFixed(2)]);
   }
   return points.length > 20 ? points : null;
+}
+
+async function priceHistory(ticker) {
+  return (await fromYahoo(ticker)) || (await fromStooq(ticker));
 }
 
 /* ----------------------------------------------------- what the street thinks */
