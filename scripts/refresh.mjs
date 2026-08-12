@@ -26,6 +26,7 @@ import path from "node:path";
 const ROOT       = path.resolve(import.meta.dirname, "..");
 const DATA       = path.join(ROOT, "data");
 const FILING_DIR = path.join(DATA, "filings");
+const DETAIL_DIR = path.join(DATA, "detail");
 
 const TOKEN = process.env.FINNHUB_TOKEN;
 const UA    = process.env.SEC_USER_AGENT || "TikStock open-source project contact@example.com";
@@ -34,6 +35,11 @@ const SKIP_FILINGS = process.env.SKIP_FILINGS === "1";
 
 /* Bump when the 10-K parser changes so cached extractions are redone once. */
 const PARSER_VERSION = 3;
+
+/* Recommendation trends move monthly, so a slice of the index each night keeps
+   every company under a week old without doubling the run time. */
+const ANALYST_TTL_DAYS = 6;
+const ANALYST_BUDGET   = 160;
 
 if (!TOKEN) {
   console.error("FINNHUB_TOKEN is not set. Add it under Settings -> Secrets and variables -> Actions.");
@@ -111,6 +117,8 @@ function pickMetric(m, ...keys) {
    One request returns a given concept for every filer that reported it, so a
    handful of calls covers all 500 companies. */
 
+const HISTORY_YEARS = 5;
+
 const FRAME_CONCEPTS = [
   { key: "revenue",   tags: ["RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues", "SalesRevenueNet", "RevenueFromContractWithCustomerIncludingAssessedTax"], kind: "duration" },
   { key: "netIncome", tags: ["NetIncomeLoss"],                                     kind: "duration" },
@@ -120,7 +128,10 @@ const FRAME_CONCEPTS = [
   { key: "liabs",     tags: ["Liabilities"],                                       kind: "instant"  },
   { key: "equity",    tags: ["StockholdersEquity"],                                kind: "instant"  },
   { key: "cash",      tags: ["CashAndCashEquivalentsAtCarryingValue", "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"], kind: "instant" },
-  { key: "debt",      tags: ["LongTermDebtNoncurrent", "LongTermDebt"],            kind: "instant"  }
+  { key: "debt",      tags: ["LongTermDebtNoncurrent", "LongTermDebt"],            kind: "instant"  },
+  { key: "grossProfit", tags: ["GrossProfit"],                                      kind: "duration" },
+  { key: "opIncome",  tags: ["OperatingIncomeLoss"],                                kind: "duration" },
+  { key: "shares",    tags: ["WeightedAverageNumberOfDilutedSharesOutstanding", "WeightedAverageNumberOfSharesOutstandingBasic"], kind: "duration", unit: "shares" }
 ];
 
 async function loadFrames(years) {
@@ -131,7 +142,8 @@ async function loadFrames(years) {
       let filled = 0;
       for (const tag of concept.tags) {
         const period = concept.kind === "instant" ? `CY${year}Q4I` : `CY${year}`;
-        const url = `https://data.sec.gov/api/xbrl/frames/us-gaap/${tag}/USD/${period}.json`;
+        const unit = concept.unit || "USD";
+        const url = `https://data.sec.gov/api/xbrl/frames/us-gaap/${tag}/${unit}/${period}.json`;
         const json = await sec(url, `frames ${tag} ${period}`);
         if (!json?.data) continue;
         for (const row of json.data) {
@@ -161,7 +173,7 @@ async function conceptFallback(cik, concept) {
   for (const tag of concept.tags) {
     const url = `https://data.sec.gov/api/xbrl/companyconcept/CIK${cik}/us-gaap/${tag}.json`;
     const json = await sec(url, `concept ${tag}`);
-    const units = json?.units?.USD;
+    const units = json?.units?.[concept.unit || "USD"];
     if (!units?.length) continue;
 
     const annual = units.filter((u) => {
@@ -174,15 +186,84 @@ async function conceptFallback(cik, concept) {
     if (!annual.length) continue;
 
     annual.sort((a, b) => (a.end < b.end ? 1 : -1));
+    const byYear = {};
+    for (const u of annual) {
+      const y = Number(u.end.slice(0, 4));
+      if (byYear[y] === undefined) byYear[y] = numOrNull(u.val);
+    }
     const latest = annual[0];
-    const prior = annual.find((u) => u.end.slice(0, 4) === String(Number(latest.end.slice(0, 4)) - 1));
+    const latestYear = Number(latest.end.slice(0, 4));
     return {
       value: numOrNull(latest.val),
-      prior: prior ? numOrNull(prior.val) : null,
-      fy: Number(latest.end.slice(0, 4))
+      prior: byYear[latestYear - 1] ?? null,
+      series: byYear,
+      fy: latestYear
     };
   }
   return null;
+}
+
+/* --------------------------------------------------- price history (Stooq)
+   Finnhub paywalls its candle endpoint. Stooq serves free daily OHLC as CSV and
+   has no CORS headers — which does not matter here, because this runs on a
+   server rather than in the browser. Weekly closes keep the file small enough
+   to ship one per company. */
+
+async function priceHistory(ticker) {
+  const sym = ticker.toLowerCase().replace(/\./g, '-') + '.us';
+  const csv = await getText(`https://stooq.com/q/d/l/?s=${sym}&i=d`, { label: `stooq ${ticker}` });
+  if (!csv || csv.length < 200 || /No data|Exceeded/i.test(csv.slice(0, 120))) return null;
+
+  const lines = csv.trim().split(/\r?\n/);
+  const head = lines[0].toLowerCase().split(',');
+  const iDate = head.indexOf('date'), iClose = head.indexOf('close');
+  if (iDate === -1 || iClose === -1) return null;
+
+  const cutoff = new Date(Date.now() - 5.2 * 365 * 864e5).toISOString().slice(0, 10);
+  const points = [];
+  let lastWeek = null;
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(',');
+    const date = cols[iDate], close = Number(cols[iClose]);
+    if (!date || date < cutoff || !isFinite(close) || close <= 0) continue;
+    /* one point per ISO week, plus always the final day */
+    const wk = date.slice(0, 4) + '-' + Math.floor(Number(date.slice(5, 7)) * 4.35 + Number(date.slice(8, 10)) / 7);
+    if (wk !== lastWeek) { points.push([date, +close.toFixed(2)]); lastWeek = wk; }
+  }
+  const lastRow = lines[lines.length - 1].split(',');
+  const lastClose = Number(lastRow[iClose]);
+  if (points.length && isFinite(lastClose) && points[points.length - 1][0] !== lastRow[iDate]) {
+    points.push([lastRow[iDate], +lastClose.toFixed(2)]);
+  }
+  return points.length > 20 ? points : null;
+}
+
+/* ----------------------------------------------------- what the street thinks */
+
+async function analystView(ticker) {
+  const [recs, surprises] = await Promise.all([
+    finnhub(`/stock/recommendation?symbol=${encodeURIComponent(ticker)}`),
+    finnhub(`/stock/earnings?symbol=${encodeURIComponent(ticker)}`)
+  ]);
+
+  const trend = Array.isArray(recs)
+    ? recs.slice(0, 6).map((r) => ({
+        period: r.period,
+        strongBuy: r.strongBuy || 0, buy: r.buy || 0, hold: r.hold || 0,
+        sell: r.sell || 0, strongSell: r.strongSell || 0
+      }))
+    : [];
+
+  const earnings = Array.isArray(surprises)
+    ? surprises.slice(0, 8).map((e) => ({
+        period: e.period,
+        actual: numOrNull(e.actual),
+        estimate: numOrNull(e.estimate),
+        surprisePct: numOrNull(e.surprisePercent)
+      })).filter((e) => e.actual !== null)
+    : [];
+
+  return (trend.length || earnings.length) ? { trend, earnings } : null;
 }
 
 /* ------------------------------------------------------------ EDGAR filings */
@@ -370,10 +451,12 @@ async function main() {
   /* --- SEC XBRL frames ---------------------------------------------------- */
   const year = today.getUTCFullYear();
   console.log("Loading SEC XBRL frames...");
-  const frames = await loadFrames([year - 1, year - 2]);
+  const frames = await loadFrames(Array.from({ length: HISTORY_YEARS }, (_, i) => year - 1 - i));
   console.log(`Frames cover ${frames.size} filers\n`);
 
   await fs.mkdir(FILING_DIR, { recursive: true });
+  await fs.mkdir(DETAIL_DIR, { recursive: true });
+  let analystSpent = 0, chartsOk = 0;
 
   const stocks = [];
   const skipped = [];
@@ -382,6 +465,7 @@ async function main() {
   for (let i = 0; i < companies.length; i++) {
     const c = companies[i];
     const tag = `[${String(i + 1).padStart(3)}/${companies.length}] ${c.t}`;
+    const safeName = c.t.replace(/[^A-Z0-9.]/gi, "_");
 
     /* -- market data -- */
     const [quote, metricRes] = await Promise.all([
@@ -410,7 +494,7 @@ async function main() {
 
     /* -- 10-K contents, cached by accession -- */
     let detail = null;
-    const cachePath = path.join(FILING_DIR, `${c.t.replace(/[^A-Z0-9.]/gi, "_")}.json`);
+    const cachePath = path.join(FILING_DIR, safeName + ".json");
     if (tenK) {
       let cached = null;
       try { cached = JSON.parse(await fs.readFile(cachePath, "utf8")); } catch { /* first run */ }
@@ -433,11 +517,16 @@ async function main() {
 
     /* A filer with a non-calendar fiscal year appears in no CY frame. Ask for
        its concepts directly rather than showing a card with no financials. */
+    const directSeries = {};
     if (yr("revenue") === null) {
       const direct = {};
       for (const concept of FRAME_CONCEPTS) {
         const hit = await conceptFallback(c.cik, concept);
-        if (hit) { direct[concept.key] = hit; finFy = hit.fy || finFy; }
+        if (hit) {
+          direct[concept.key] = hit;
+          if (hit.series) directSeries[concept.key] = hit.series;
+          finFy = hit.fy || finFy;
+        }
       }
       if (Object.keys(direct).length) {
         yr = (k) => direct[k]?.value ?? f[k]?.[year - 1] ?? null;
@@ -447,6 +536,42 @@ async function main() {
     }
 
     const ocf = yr("ocf"), capex = yr("capex");
+
+    /* ---- multi-year history for the detail sheet ---- */
+    const histYears = Array.from({ length: HISTORY_YEARS }, (_, k) => finFy - k);
+    const history = {};
+    for (const concept of FRAME_CONCEPTS) {
+      const row = {};
+      for (const y of histYears) {
+        const v = directSeries[concept.key]?.[y] ?? f[concept.key]?.[y];
+        if (v !== undefined && v !== null) row[y] = v;
+      }
+      if (Object.keys(row).length) history[concept.key] = row;
+    }
+
+    /* ---- price history and the analyst view, written per company ---- */
+    const detailPath = path.join(DETAIL_DIR, safeName + ".json");
+    let priorDetail = null;
+    try { priorDetail = JSON.parse(await fs.readFile(detailPath, "utf8")); } catch { /* first run */ }
+
+    const chart = (await priceHistory(c.t)) || priorDetail?.chart || null;
+    if (chart) chartsOk++;
+
+    const analystAge = priorDetail?.analystAt
+      ? (Date.now() - new Date(priorDetail.analystAt)) / 864e5
+      : Infinity;
+    let analyst = priorDetail?.analyst || null;
+    let analystAt = priorDetail?.analystAt || null;
+    if (analystAge > ANALYST_TTL_DAYS && analystSpent < ANALYST_BUDGET) {
+      const fresh = await analystView(c.t);
+      analystSpent++;
+      if (fresh) { analyst = fresh; analystAt = new Date().toISOString(); }
+    }
+
+    await fs.writeFile(detailPath, JSON.stringify({
+      t: c.t, updated: new Date().toISOString(),
+      fy: finFy, history, chart, analyst, analystAt
+    }));
 
     stocks.push({
       t: c.t, n: c.n, s: c.s, cik: c.cik,
@@ -499,7 +624,10 @@ async function main() {
         tenK: tenK && { date: tenK.date, period: tenK.period, url: tenK.url, index: tenK.index },
         tenQ: tenQ && { date: tenQ.date, period: tenQ.period, url: tenQ.url, index: tenQ.index },
         detail: !!(detail?.business || detail?.risks?.length)
-      }
+      },
+
+      /* deep data lives in data/detail/<TICKER>.json, opened on tap */
+      deep: { chart: !!chart, analyst: !!analyst, years: Object.keys(history.revenue || {}).length }
     });
 
     if ((i + 1) % 25 === 0 || i === companies.length - 1) {
@@ -509,6 +637,8 @@ async function main() {
   }
 
   const withFilings = stocks.filter((s) => s.sec.detail).length;
+  const withCharts = stocks.filter((s) => s.deep.chart).length;
+  const withAnalyst = stocks.filter((s) => s.deep.analyst).length;
   const snapshot = {
     updated: new Date().toISOString(),
     universe: "S&P 500",
@@ -517,7 +647,8 @@ async function main() {
       skipped: skipped.length,
       withEarningsDate: stocks.filter((s) => s.earnings).length,
       withFilings,
-      withFinancials: stocks.filter((s) => s.fin.revenue !== null).length
+      withFinancials: stocks.filter((s) => s.fin.revenue !== null).length,
+      withCharts, withAnalyst
     },
     skipped,
     stocks
@@ -528,6 +659,8 @@ async function main() {
     `\nDone in ${((Date.now() - started) / 60000).toFixed(1)} min\n` +
     `  ${stocks.length} companies, ${skipped.length} skipped${skipped.length ? ` (${skipped.join(", ")})` : ""}\n` +
     `  ${snapshot.counts.withFinancials} with SEC financials, ${withFilings} with 10-K contents\n` +
+    `  ${withCharts} with a price chart, ${withAnalyst} with an analyst view (${analystSpent} refreshed this run)
+` +
     `  10-Ks: ${filingsFetched} downloaded, ${filingsCached} from cache
 ` +
     `  ${fellBack} companies needed a direct XBRL lookup (non-calendar fiscal year)`
