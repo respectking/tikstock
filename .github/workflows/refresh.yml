@@ -1,0 +1,57 @@
+name: Refresh market data
+
+# Rebuilds data/snapshot.json every morning from Finnhub + SEC EDGAR and commits
+# it back. The API key lives in repo secrets and never reaches the browser.
+
+on:
+  schedule:
+    - cron: "20 10 * * 1-5"   # 10:20 UTC on weekdays — after SEC posts overnight filings
+  workflow_dispatch:           # lets you run it on demand from the Actions tab
+    inputs:
+      limit:
+        description: "Only process the first N companies (blank = all)"
+        required: false
+        default: ""
+      skip_filings:
+        description: "Skip downloading 10-Ks (1 = skip)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build snapshot
+        env:
+          FINNHUB_TOKEN: ${{ secrets.FINNHUB_TOKEN }}
+          SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT }}
+          LIMIT: ${{ github.event.inputs.limit }}
+          SKIP_FILINGS: ${{ github.event.inputs.skip_filings }}
+        run: node scripts/refresh.mjs
+
+      - name: Commit if anything changed
+        run: |
+          git config user.name  "tikstock-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/snapshot.json data/filings
+          if git diff --cached --quiet; then
+            echo "No data changes."
+          else
+            git commit -m "Data refresh $(date -u +'%Y-%m-%d')"
+            git push
+          fi
