@@ -15,7 +15,8 @@
    ========================================================================== */
 import {
   num, clamp, money, cap, price, pct, pctPlain, x, dateShort, rangePos,
-  FACTORS, scoreStock, scoreLabel, prosAndCons
+  FACTORS, scoreStock, scoreLabel, prosAndCons,
+  splitAdjustShares, shareCountNote
 } from "./lib/analysis.mjs";
 
 /* ---------------------------------------------------------------- storage */
@@ -1031,11 +1032,12 @@ function buildHistory(deep) {
       });
       tb.appendChild(tr2);
     });
-  if (h.shares) {
+  var adjShares = splitAdjustShares(h.shares).shares;
+  if (adjShares) {
     var trS = el("tr");
     var thS = el("th", "", "Diluted shares"); thS.scope = "row";
     trS.appendChild(thS);
-    years.forEach(function (y) { trS.appendChild(el("td", "", num(h.shares[y]) ? money(h.shares[y], false) : "—")); });
+    years.forEach(function (y) { trS.appendChild(el("td", "", num(adjShares[y]) ? money(adjShares[y], false) : "—")); });
     tb.appendChild(trS);
   }
 
@@ -1045,19 +1047,8 @@ function buildHistory(deep) {
   scroll.appendChild(table);
   box.appendChild(scroll);
 
-  if (h.shares) {
-    var ys = Object.keys(h.shares).map(Number).sort();
-    var oldest = h.shares[ys[0]], newest = h.shares[ys[ys.length - 1]];
-    if (num(oldest) && num(newest) && oldest > 0 && ys.length > 1) {
-      var change = ((newest - oldest) / oldest) * 100;
-      box.appendChild(el("p", "fin-note",
-        Math.abs(change) < 1
-          ? "Share count is essentially flat over " + ys.length + " years."
-          : change < 0
-            ? "Share count is down " + Math.abs(change).toFixed(1) + "% over " + ys.length + " years — buybacks have been shrinking the pie."
-            : "Share count is up " + change.toFixed(1) + "% over " + ys.length + " years — your slice has been diluted."));
-    }
-  }
+  var note = shareCountNote(h.shares);
+  if (note) box.appendChild(el("p", "fin-note", note));
   return box;
 }
 
@@ -1071,15 +1062,30 @@ var REC_BANDS = [
   { key: "strongSell", label: "Strong sell", cls: "rec-ss" }
 ];
 
+/* Two decimals unless the number genuinely has more, then up to four. */
+function trimNum(v) {
+  var s = v.toFixed(4).replace(/0+$/, "");
+  var dp = (s.split(".")[1] || "").length;
+  return v.toFixed(Math.max(2, Math.min(4, dp)));
+}
+
 function buildAnalyst(deep) {
   var box = el("div", "");
   var a = deep && deep.analyst;
-  if (!a || (!a.trend.length && !a.earnings.length)) {
-    box.appendChild(el("p", "block-note", "No analyst coverage data for this ticker yet."));
+  var trend = (a && a.trend) || [];
+  var surprises = (a && a.earnings) || [];
+
+  /* Three different silences, and they are not the same thing: the deep file
+     has not been generated yet, it exists but the fetch has not run, or the
+     street genuinely publishes nothing on this ticker. Say which. */
+  if (!trend.length && !surprises.length) {
+    box.appendChild(el("p", "block-note", !deep
+      ? "This company's deep data hasn't been built yet — it arrives with the next daily refresh."
+      : "No analyst ratings or earnings-surprise history are published for this ticker."));
     return box;
   }
 
-  if (a.trend.length) {
+  if (trend.length) {
     box.appendChild(el("h4", "sub-h", "Where the ratings sit"));
 
     var legend = el("div", "rec-legend");
@@ -1092,7 +1098,7 @@ function buildAnalyst(deep) {
     box.appendChild(legend);
 
     var list = el("div", "rec-rows");
-    a.trend.slice(0, 4).forEach(function (row) {
+    trend.slice(0, 4).forEach(function (row) {
       var total = REC_BANDS.reduce(function (s, b) { return s + (row[b.key] || 0); }, 0);
       var r = el("div", "rec-row");
       r.appendChild(el("span", "rec-period", (row.period || "").slice(0, 7)));
@@ -1113,11 +1119,11 @@ function buildAnalyst(deep) {
     box.appendChild(list);
   }
 
-  if (a.earnings.length) {
+  if (surprises.length) {
     box.appendChild(el("h4", "sub-h", "Has it been beating estimates?"));
     var t = el("table", "rv-table");
     var tb = el("tbody");
-    a.earnings.slice(0, 6).forEach(function (e) {
+    surprises.slice(0, 6).forEach(function (e) {
       var tr = el("tr");
       var th = el("th", "", e.period); th.scope = "row";
       tr.appendChild(th);
@@ -1125,9 +1131,13 @@ function buildAnalyst(deep) {
       var td = el("td", "");
       var mark = el("span", "delta small " + (beat ? "up" : "down"));
       mark.appendChild(el("span", "arrow", beat ? "▲" : "▼"));
+      /* Consensus estimates carry more decimals than a share price does — APH's
+         Q2 was $1.1942, not $1.19. Rounding it to two made the printed beat
+         percentage look like it did not follow from the two numbers beside it,
+         so keep whatever precision the estimate actually has, up to four. */
       mark.appendChild(el("span", "",
         "$" + (num(e.actual) ? e.actual.toFixed(2) : "—") +
-        " vs $" + (num(e.estimate) ? e.estimate.toFixed(2) : "—") + " expected" +
+        " vs $" + (num(e.estimate) ? trimNum(e.estimate) : "—") + " expected" +
         (num(e.surprisePct) ? " (" + pct(e.surprisePct, 1) + ")" : "")));
       td.appendChild(mark);
       tr.appendChild(td);
