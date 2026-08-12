@@ -141,7 +141,9 @@ async function loadFrames(years) {
             filled++;
           }
         }
-        if (filled > 300) break;  /* primary tag covered most filers */
+        /* keep going through the alternate tags — each only fills gaps the
+           earlier ones left, and filers are far from consistent about which
+           revenue concept they use */
       }
       console.log(`  frames ${concept.key} ${year}: ${filled} filers`);
     }
@@ -415,7 +417,7 @@ async function main() {
 
     /* A filer with a non-calendar fiscal year appears in no CY frame. Ask for
        its concepts directly rather than showing a card with no financials. */
-    if (yr("revenue") === null && yr("netIncome") === null) {
+    if (yr("revenue") === null) {
       const direct = {};
       for (const concept of FRAME_CONCEPTS) {
         const hit = await conceptFallback(c.cik, concept);
