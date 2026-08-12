@@ -5,7 +5,7 @@ A Tinder-style deck for the stock market. Swipe **right** if you're bullish,
 out of 100, a breakdown of how it got there, and whether your gut agreed with the
 numbers. Keep a streak going.
 
-**→ [Play it](#)** *(replace with your GitHub Pages URL once published)*
+**→ [Play it](https://respectking.github.io/tikstock/)**
 
 > **Not investment advice.** The score is a toy model built from public
 > fundamentals. It does not predict returns and nobody should trade on it.
@@ -89,7 +89,7 @@ the Finnhub dashboard when you're done.
 No build step, no dependencies. It's three files and a data file.
 
 ```bash
-git clone https://github.com/<you>/tikstock.git
+git clone https://github.com/respectking/tikstock.git
 cd tikstock
 python3 -m http.server 8080
 # open http://localhost:8080
@@ -107,8 +107,7 @@ The repo is already a valid GitHub Pages site — static files at the root, plus
 
 **Settings → Pages → Source: Deploy from a branch → `main` / `(root)` → Save.**
 
-Give it a minute and the site is at
-`https://<user>.github.io/<repo>/`.
+Live at [respectking.github.io/tikstock](https://respectking.github.io/tikstock/).
 
 ---
 
