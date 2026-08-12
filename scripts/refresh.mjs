@@ -65,6 +65,9 @@ function limiter(perSec) {
 const finnhubGate = limiter(50 / 60);  /* free tier allows 60/min; stay under */
 const secGate     = limiter(8);        /* SEC asks for <= 10 requests/second  */
 
+const chartGate   = limiter(5);        /* charts are optional, so pace them and
+                                          never let retries stall the run */
+
 async function getJSON(url, { headers = {}, gate, tries = 3, label = "" } = {}) {
   for (let attempt = 1; attempt <= tries; attempt++) {
     if (gate) await gate();
@@ -217,7 +220,7 @@ const BROWSER_UA =
 async function fromYahoo(ticker) {
   const sym = ticker.replace(/\./g, '-');
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=5y&interval=1wk`;
-  const json = await getJSON(url, { headers: { 'User-Agent': BROWSER_UA }, tries: 2, label: `yahoo ${ticker}` });
+  const json = await getJSON(url, { headers: { 'User-Agent': BROWSER_UA }, gate: chartGate, tries: 1, label: `yahoo ${ticker}` });
   const res = json?.chart?.result?.[0];
   const stamps = res?.timestamp;
   const closes = res?.indicators?.quote?.[0]?.close;
@@ -235,7 +238,7 @@ async function fromYahoo(ticker) {
 async function fromStooq(ticker) {
   const sym = ticker.toLowerCase().replace(/\./g, '-') + '.us';
   const csv = await getText(`https://stooq.com/q/d/l/?s=${sym}&i=w`, {
-    headers: { 'User-Agent': BROWSER_UA }, label: `stooq ${ticker}`
+    headers: { 'User-Agent': BROWSER_UA }, gate: chartGate, label: `stooq ${ticker}`
   });
   if (!csv || csv.length < 200 || /No data|Exceeded/i.test(csv.slice(0, 120))) return null;
 
