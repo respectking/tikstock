@@ -1,11 +1,15 @@
 name: Refresh market data
 
-# Rebuilds data/snapshot.json every morning from Finnhub + SEC EDGAR and commits
-# it back. The API key lives in repo secrets and never reaches the browser.
+# Rebuilds data/snapshot.json every weekday evening from Finnhub + SEC EDGAR and
+# commits it back. The API key lives in repo secrets and never reaches the browser.
 
 on:
   schedule:
-    - cron: "20 10 * * 1-5"   # 10:20 UTC on weekdays — after SEC posts overnight filings
+    # 22:20 UTC on weekdays. That is 6:20pm ET in summer and 5:20pm ET in winter,
+    # so it clears the 4pm close year-round without needing a DST adjustment, and
+    # it also picks up filings EDGAR accepted during the day (cutoff 5:30pm ET).
+    # The date is still the same weekday in ET at 22:20 UTC, so 1-5 is correct.
+    - cron: "20 22 * * 1-5"
   workflow_dispatch:           # lets you run it on demand from the Actions tab
     inputs:
       limit:
@@ -44,6 +48,12 @@ jobs:
           SKIP_FILINGS: ${{ github.event.inputs.skip_filings }}
         run: node scripts/refresh.mjs
 
+      # The gate. Compares what was just built against what is already live and
+      # refuses to go further if the data is worse than yesterday's. A failure
+      # here means nothing is committed, so the previous snapshot stays up.
+      - name: Audit before publishing
+        run: node scripts/audit.mjs
+
       - name: Build the static company pages
         env:
           SITE_ORIGIN: https://stockornot.com
@@ -59,9 +69,9 @@ jobs:
           # our freshly built files staged, and commit on top. The run that just
           # spent an hour fetching wins, and no merge is ever attempted.
           git fetch origin "${GITHUB_REF_NAME}"
-          git add data/snapshot.json data/filings data/detail stock sitemap.xml robots.txt
+          git add data/snapshot.json data/audit.json data/filings data/detail stock sitemap.xml robots.txt
           git reset --soft FETCH_HEAD
-          git add data/snapshot.json data/filings data/detail stock sitemap.xml robots.txt
+          git add data/snapshot.json data/audit.json data/filings data/detail stock sitemap.xml robots.txt
 
           if git diff --cached --quiet; then
             echo "Nothing changed."
