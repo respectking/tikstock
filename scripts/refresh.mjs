@@ -352,11 +352,19 @@ async function main() {
   const fmt = (d) => d.toISOString().slice(0, 10);
   const cal = await finnhub(`/calendar/earnings?from=${fmt(today)}&to=${fmt(horizon)}`);
   const earnings = new Map();
-  for (const e of cal?.earningsCalendar || []) {
-    if (!earnings.has(e.symbol)) {
-      earnings.set(e.symbol, { date: e.date, epsEst: numOrNull(e.epsEstimate), hour: e.hour || null });
-    }
-  }
+  const todayStr = fmt(today);
+
+  /* Finnhub returns calendar rows in no particular order and a company can have
+     several scheduled dates in the window — keep the soonest one that has not
+     already happened, or the card advertises next February's report. */
+  const remember = (row) => {
+    if (!row?.date || row.date < todayStr) return;
+    const held = earnings.get(row.symbol);
+    if (held && held.date <= row.date) return;
+    earnings.set(row.symbol, { date: row.date, epsEst: numOrNull(row.epsEstimate), hour: row.hour || null });
+  };
+
+  for (const e of cal?.earningsCalendar || []) remember(e);
   console.log(`Earnings calendar: ${earnings.size} symbols\n`);
 
   /* --- SEC XBRL frames ---------------------------------------------------- */
@@ -392,10 +400,7 @@ async function main() {
        a minority of the index at any moment. Ask per symbol for the rest. */
     if (!earnings.has(c.t)) {
       const one = await finnhub(`/calendar/earnings?symbol=${encodeURIComponent(c.t)}&from=${fmt(today)}&to=${fmt(horizon)}`);
-      const row = one?.earningsCalendar?.[0];
-      if (row?.date) {
-        earnings.set(c.t, { date: row.date, epsEst: numOrNull(row.epsEstimate), hour: row.hour || null });
-      }
+      for (const row of one?.earningsCalendar || []) remember({ ...row, symbol: c.t });
     }
 
     /* -- SEC filing history -- */
