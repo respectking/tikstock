@@ -5,16 +5,18 @@
    what the company's own 10-K says — and you decide. Swipe right to put it in
    your cart, left to move on.
 
-   No scoring model, no verdict. The pros and cons are plain thresholds applied
-   to the real numbers, and each one states the number it is reacting to, so you
-   can disagree with the rule and still see the fact underneath it.
+   The score is a weighted blend of five factor curves over reported figures,
+   and the pros and cons are thresholds that name the number that set them off.
+   Neither predicts anything; both are shown with the raw figures beside them.
 
    Data comes from data/snapshot.json, rebuilt every weekday morning by a GitHub
    Action (see scripts/refresh.mjs). Nothing is fetched from the browser except
    these static files.
    ========================================================================== */
-(function () {
-"use strict";
+import {
+  num, clamp, money, cap, price, pct, pctPlain, x, dateShort, rangePos,
+  FACTORS, scoreStock, scoreLabel, prosAndCons
+} from "./lib/analysis.mjs";
 
 /* ---------------------------------------------------------------- storage */
 
@@ -53,9 +55,6 @@ function el(tag, cls, text) {
   if (text !== undefined && text !== null) n.textContent = text;
   return n;
 }
-function num(v) { return typeof v === "number" && isFinite(v); }
-function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
-
 function shuffle(a) {
   a = a.slice();
   for (var i = a.length - 1; i > 0; i--) {
@@ -65,42 +64,9 @@ function shuffle(a) {
   return a;
 }
 
-/* ------------------------------------------------------------ formatting */
-
-function money(v, currency) {
-  if (!num(v)) return "—";
-  var sign = v < 0 ? "-" : "";
-  var a = Math.abs(v), s;
-  if (a >= 1e12)     s = (a / 1e12).toFixed(a >= 1e13 ? 1 : 2) + "T";
-  else if (a >= 1e9) s = (a / 1e9).toFixed(a >= 1e11 ? 0 : 1) + "B";
-  else if (a >= 1e6) s = (a / 1e6).toFixed(a >= 1e8 ? 0 : 1) + "M";
-  else if (a >= 1e3) s = (a / 1e3).toFixed(0) + "K";
-  else               s = a.toFixed(0);
-  return sign + (currency === false ? "" : "$") + s;
-}
-
-/* Finnhub reports market cap in millions. */
-function cap(v) { return num(v) ? money(v * 1e6) : "—"; }
-
-function price(v) {
-  if (!num(v)) return "—";
-  var d = v >= 1000 ? 0 : v >= 1 ? 2 : 4;
-  return "$" + v.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
-}
-
-function pct(v, d) {
-  if (!num(v)) return "—";
-  return (v > 0 ? "+" : "") + v.toFixed(d === undefined ? 1 : d) + "%";
-}
-function pctPlain(v, d) { return num(v) ? v.toFixed(d === undefined ? 1 : d) + "%" : "—"; }
-function x(v, d) { return num(v) ? v.toFixed(d === undefined ? 1 : d) + "×" : "—"; }
-
-function dateShort(iso) {
-  if (!iso) return "—";
-  var d = new Date(iso + (iso.length === 10 ? "T12:00:00Z" : ""));
-  if (isNaN(d)) return iso;
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
-}
+/* -------------------------------------------- local formatting helpers ---
+   Everything shared with the static page builder lives in lib/analysis.mjs;
+   these two are only meaningful in a live page. */
 
 function daysUntil(iso) {
   if (!iso) return null;
@@ -116,112 +82,6 @@ function relTime(iso) {
   var hrs = Math.round(mins / 60);
   if (hrs < 36) return hrs + "h ago";
   return Math.round(hrs / 24) + " days ago";
-}
-
-/* Where the price sits in its 52-week band, 0–1. */
-function rangePos(s) {
-  if (!num(s.lo) || !num(s.hi) || s.hi <= s.lo || !num(s.price)) return null;
-  return clamp((s.price - s.lo) / (s.hi - s.lo), 0, 1);
-}
-
-/* ====================================================== PROS AND CONS =====
-   Plain thresholds on the reported numbers. Every line names the figure that
-   triggered it, so the rule is arguable but the fact is not. Nothing here is a
-   recommendation and nothing is weighted into a score.
-   ======================================================================== */
-
-function prosAndCons(s) {
-  var pros = [], cons = [];
-  var f = s.fin || {};
-  var pos = rangePos(s);
-  var add = function (arr, w, text) { arr.push({ w: w, text: text }); };
-
-  /* ---- valuation ---- */
-  if (num(s.pe) && s.pe > 0) {
-    if (s.pe < 13)      add(pros, 8, "Cheap on earnings at " + x(s.pe) + " — well under the market's usual 20×.");
-    else if (s.pe < 18) add(pros, 5, "Reasonably priced at " + x(s.pe) + " earnings.");
-    else if (s.pe > 55) add(cons, 9, "Very expensive at " + x(s.pe) + " earnings — years of growth are already in the price.");
-    else if (s.pe > 30) add(cons, 6, "Pricey at " + x(s.pe) + " earnings, against a long-run market average nearer 20×.");
-  }
-  if (num(s.pb) && s.pb > 0 && s.pb < 1.3) add(pros, 6, "Trades at " + x(s.pb, 2) + " book value — below what the balance sheet says it owns.");
-  if (num(s.pb) && s.pb > 20)              add(cons, 5, "Priced at " + x(s.pb, 0) + " book value — there is very little hard asset backing here.");
-  if (num(s.ps) && s.ps > 12)              add(cons, 6, "Priced at " + x(s.ps) + " sales, which leaves no room for a stumble.");
-
-  /* ---- growth ---- */
-  if (num(s.rg)) {
-    if (s.rg >= 20)      add(pros, 9, "Revenue up " + pct(s.rg) + " on the year.");
-    else if (s.rg >= 8)  add(pros, 6, "Revenue growing " + pct(s.rg) + " year over year.");
-    else if (s.rg < -5)  add(cons, 8, "Revenue fell " + pct(s.rg) + " year over year.");
-    else if (s.rg < 1)   add(cons, 5, "Revenue is flat — " + pct(s.rg) + " on the year.");
-  }
-  if (num(s.rg5) && s.rg5 >= 10) add(pros, 5, "Has compounded revenue at " + pctPlain(s.rg5) + " a year over five years.");
-  if (num(s.eg)) {
-    if (s.eg >= 25)      add(pros, 6, "Earnings per share up " + pct(s.eg) + ".");
-    else if (s.eg <= -20) add(cons, 7, "Earnings per share down " + pct(s.eg) + ".");
-  }
-
-  /* ---- profitability ---- */
-  if (num(s.roe)) {
-    if (s.roe >= 25)     add(pros, 8, "Turns " + pctPlain(s.roe, 0) + " on shareholder equity.");
-    else if (s.roe >= 15) add(pros, 5, "Solid " + pctPlain(s.roe, 0) + " return on equity.");
-    else if (s.roe < 0)  add(cons, 9, "Losing money — return on equity is " + pctPlain(s.roe, 0) + ".");
-    else if (s.roe < 8)  add(cons, 5, "Thin " + pctPlain(s.roe, 0) + " return on equity.");
-  }
-  if (num(s.nm)) {
-    if (s.nm >= 20)      add(pros, 7, pctPlain(s.nm, 0) + " of revenue drops through to net profit.");
-    else if (s.nm < 0)   add(cons, 9, "Unprofitable — net margin of " + pctPlain(s.nm) + ".");
-    else if (s.nm < 4)   add(cons, 5, "Wafer-thin net margin of " + pctPlain(s.nm) + ".");
-  }
-  if (num(s.gm) && s.gm >= 55) add(pros, 4, "Gross margin of " + pctPlain(s.gm, 0) + " absorbs cost shocks.");
-
-  /* ---- cash and balance sheet, straight from the filings ---- */
-  if (num(f.fcf) && num(f.revenue) && f.revenue > 0) {
-    var conv = (f.fcf / f.revenue) * 100;
-    if (f.fcf > 0 && conv >= 15)  add(pros, 8, "Generated " + money(f.fcf) + " of free cash flow in FY" + f.fy + " — " + conv.toFixed(0) + "% of revenue.");
-    else if (f.fcf > 0)           add(pros, 4, "Free cash flow was positive in FY" + f.fy + " at " + money(f.fcf) + ".");
-    else if (f.fcf < -1e6)        add(cons, 8, "Burned " + money(Math.abs(f.fcf)) + " of free cash in FY" + f.fy + ".");
-  }
-  if (num(f.cash) && num(f.debt)) {
-    if (f.cash > f.debt)          add(pros, 7, "Holds more cash (" + money(f.cash) + ") than long-term debt (" + money(f.debt) + ").");
-    else if (f.debt > f.cash * 5) add(cons, 6, "Long-term debt of " + money(f.debt) + " against " + money(f.cash) + " of cash.");
-  }
-  if (num(s.de)) {
-    if (s.de < 0.05)     add(pros, 5, "Carries essentially no debt.");
-    else if (s.de < 0.4) add(pros, 5, "Barely leveraged — debt is " + x(s.de, 2) + " equity.");
-    else if (s.de > 2.5) add(cons, 7, "Heavily leveraged — debt is " + x(s.de, 1) + " equity.");
-  }
-  if (num(s.cr)) {
-    if (s.cr >= 2)   add(pros, 3, "Current assets cover near-term bills " + x(s.cr, 1) + " over.");
-    else if (s.cr < 1) add(cons, 6, "Current liabilities exceed current assets (ratio " + s.cr.toFixed(2) + ").");
-  }
-
-  /* ---- dividend ---- */
-  if (num(s.dy) && s.dy > 0) {
-    if (s.dy > 8)                       add(cons, 6, "An " + pctPlain(s.dy) + " yield is usually the market pricing in a cut.");
-    else if (s.dy >= 2.5)               add(pros, 6, "Pays a " + pctPlain(s.dy) + " dividend while you wait.");
-    else if (s.dy >= 1)                 add(pros, 3, "Pays a modest " + pctPlain(s.dy) + " dividend.");
-    if (num(s.payout) && s.payout > 90) add(cons, 5, "Dividend eats " + pctPlain(s.payout, 0) + " of earnings — little cushion.");
-  }
-
-  /* ---- price behaviour ---- */
-  if (pos !== null) {
-    if (pos <= 0.2)      add(pros, 5, "Sits near the bottom of its 52-week range, " + Math.round((1 - s.price / s.hi) * 100) + "% off the high.");
-    else if (pos >= 0.95) add(cons, 4, "Within " + Math.max(1, Math.round((1 - s.price / s.hi) * 100)) + "% of its 52-week high.");
-  }
-  if (num(s.beta)) {
-    if (s.beta < 0.8)     add(pros, 4, "Moves less than the market (beta " + s.beta.toFixed(2) + ").");
-    else if (s.beta > 1.6) add(cons, 5, "Swings harder than the market (beta " + s.beta.toFixed(2) + ").");
-  }
-  if (num(s.r52)) {
-    if (s.r52 <= -25)     add(cons, 6, "Down " + pct(s.r52) + " over the past year.");
-    else if (s.r52 >= 40) add(pros, 3, "Up " + pct(s.r52) + " over the past year.");
-  }
-
-  var byWeight = function (a, b) { return b.w - a.w; };
-  return {
-    pros: pros.sort(byWeight).slice(0, 6).map(function (p) { return p.text; }),
-    cons: cons.sort(byWeight).slice(0, 6).map(function (p) { return p.text; })
-  };
 }
 
 /* ============================================================ SCREENS ==== */
@@ -353,6 +213,57 @@ function stackTransform(depth) {
 
 /* --------------------------------------------------------- card contents */
 
+/* The score as a ring. Deliberately small on the card — it sits beside the
+   numbers rather than on top of them, and the factor bars behind it are one
+   tap away in the detail sheet. */
+function scoreRing(res, big) {
+  var v = res.overall;
+  var lab = scoreLabel(v);
+  var wrap = el("div", "score-ring" + (big ? " is-big" : "") + " tone-" + lab.tone);
+  var C = 2 * Math.PI * 19;
+
+  wrap.innerHTML =
+    '<svg viewBox="0 0 44 44" aria-hidden="true">' +
+      '<circle class="sr-track" cx="22" cy="22" r="19"></circle>' +
+      '<circle class="sr-arc" cx="22" cy="22" r="19"></circle>' +
+    '</svg>' +
+    '<span class="sr-num"></span>';
+
+  $(".sr-num", wrap).textContent = num(v) ? v : "—";
+  var arc = $(".sr-arc", wrap);
+  arc.style.strokeDasharray = C.toFixed(1);
+  arc.style.strokeDashoffset = (C * (1 - clamp((v || 0) / 100, 0, 1))).toFixed(1);
+
+  var cap2 = el("span", "sr-label", lab.word);
+  var box = el("div", "score-box");
+  box.appendChild(wrap);
+  box.appendChild(cap2);
+  box.title = num(v)
+    ? "Fundamentals score " + v + " out of 100 — " + lab.word.toLowerCase()
+    : "Not enough data to score this one";
+  return box;
+}
+
+function factorBars(res) {
+  var box = el("div", "factor-list");
+  FACTORS.forEach(function (f) {
+    var val = res.factors[f.id];
+    var row = el("div", "factor-row" + (num(val) ? "" : " is-na"));
+    var lab = el("div", "factor-label");
+    lab.appendChild(el("span", "fl-name", f.label));
+    lab.appendChild(el("span", "fl-blurb", f.blurb));
+    row.appendChild(lab);
+    var meter = el("div", "factor-meter");
+    var fill = el("div", "factor-fill");
+    if (num(val)) fill.style.width = clamp(val, 0, 100) + "%";
+    meter.appendChild(fill);
+    row.appendChild(meter);
+    row.appendChild(el("span", "factor-val", num(val) ? String(Math.round(val)) : "n/a"));
+    box.appendChild(row);
+  });
+  return box;
+}
+
 function statRow(label, value, hint) {
   var d = el("div", "stat");
   d.appendChild(el("dt", "", label));
@@ -386,6 +297,8 @@ function makeCard(s, depth) {
   idb.appendChild(el("span", "c-sector", s.s));
   top.appendChild(mark);
   top.appendChild(idb);
+  var res = scoreStock(s);
+  top.appendChild(scoreRing(res, false));
   body.appendChild(top);
 
   /* ---------- price ---------- */
@@ -1262,6 +1175,20 @@ function openDetail(s) {
     var deep = both[0], filing = both[1];
     body.innerHTML = "";
 
+    /* --- the score, and what drove it --- */
+    var scoreRes = scoreStock(s);
+    var scoreBox = el("div", "score-detail");
+    var scoreHead = el("div", "score-head");
+    scoreHead.appendChild(scoreRing(scoreRes, true));
+    var blurb = el("div", "score-blurb");
+    blurb.appendChild(el("p", "", num(scoreRes.overall)
+      ? "A weighted blend of the five factors below. It describes what the last filing and the current price look like. It is not a forecast, and it knows nothing about the business beyond these numbers."
+      : "Not enough reported data to score this one."));
+    scoreHead.appendChild(blurb);
+    scoreBox.appendChild(scoreHead);
+    scoreBox.appendChild(factorBars(scoreRes));
+    body.appendChild(section("Fundamentals score", scoreBox));
+
     /* --- price chart with a range toggle --- */
     var chartBox = el("div", "");
     var ranges = el("div", "range-toggle");
@@ -1449,11 +1376,18 @@ function init() {
       renderFilterUI();
       updateFilterLabel();
       buildDeck();
+
+      /* a company page links in with ?t=TICKER — start the deck on that one */
+      var want = new URLSearchParams(location.search).get("t");
+      if (want && state.byTicker[want.toUpperCase()]) {
+        var wt = want.toUpperCase();
+        state.deck = [wt].concat(state.deck.filter(function (t) { return t !== wt; }));
+        state.cursor = 0;
+      }
+
       renderDeck();
     });
 }
 
-if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
-else init();
+init();
 
-})();
