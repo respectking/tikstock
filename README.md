@@ -1,92 +1,105 @@
 # TikStock
 
-A Tinder-style deck for the stock market. Swipe **right** if you're bullish,
-**left** if you'd pass — then the card flips over and shows a fundamentals score
-out of 100, a breakdown of how it got there, and whether your gut agreed with the
-numbers. Keep a streak going.
+Every company in the S&P 500, one card at a time. Each card puts the whole
+picture in front of you — price, valuation, growth, margins, the balance sheet
+as filed, the next earnings date, and what the company's own 10-K says about its
+business and its risks — with the arguments for and against it laid out. Then you
+decide: swipe right and it goes in your cart, left and it's gone.
 
-**→ [Play it](https://respectking.github.io/tikstock/)**
+**→ [Open it](https://respectking.github.io/tikstock/)**
 
-> **Not investment advice.** The score is a toy model built from public
-> fundamentals. It does not predict returns and nobody should trade on it.
-
----
-
-## What it does
-
-- **Swipe deck** — drag the card, tap the buttons, or use <kbd>←</kbd> /
-  <kbd>→</kbd>. <kbd>↑</kbd> skips a stock without scoring it.
-- **Fundamentals score** — a 0–100 blend of five factors, shown as a gauge plus
-  per-factor meters, so you can see *why* a stock scored the way it did.
-- **Agreement tracking** — every swipe is compared against the model's stance.
-  Your hit rate and current streak live in the header; the full history is under
-  **My list**.
-- **Universes** — filter the deck to mega caps, tech, dividend payers, or
-  high-beta names.
-- **Live data, optional** — paste a free Finnhub key and every figure comes from
-  the live API instead of the bundled demo file.
-
-Everything is stored in your own browser (`localStorage`). There is no backend
-and no account.
+> **Not investment advice.** Everything here is public data, presented plainly.
+> It can be stale, mis-parsed or wrong. Read the actual filing before you buy.
 
 ---
 
-## The score
+## The idea
 
-Five factors, each mapped to 0–100 through a piecewise curve, then blended by
-weight. If an input is missing the factor is dropped and the remaining weights
-are renormalised — a stock is never penalised for a gap in the data.
+Most stock screeners either dump a spreadsheet on you or hand you a rating and
+expect you to trust it. This does neither. There is **no score and no verdict** —
+just the numbers a company reports, arranged so you can read them in about
+fifteen seconds, and a pros/cons list where every line names the figure that
+triggered it:
 
-| Factor | Weight | Built from |
-|---|---|---|
-| Profitability | 24% | return on equity, net margin |
-| Value | 22% | trailing P/E, price / book |
-| Growth | 22% | revenue growth YoY (double-weighted), EPS growth YoY |
-| Momentum | 18% | position in the 52-week range, 13-week and 52-week returns |
-| Stability | 14% | beta, width of the 52-week band, dividend yield |
+> ✓ Generated $108B of free cash flow in FY2025 — 28% of revenue.
+> ✗ Very expensive at 62.4× earnings — years of growth are already in the price.
 
-The model takes a stance only at the edges — **≥ 62 is bullish, ≤ 42 is
-bearish**, and anything between is an honest "no call" that counts as a push
-rather than a miss.
-
-The curves live in `app.js` under `SCORING` and are deliberately readable. If you
-disagree with the shape of one, change the knots — the whole thing is about
-thirty lines.
-
-### What it is not
-
-It is a static snapshot scorer. It has no view on the business, the management,
-the competitive position, or anything that happened after the last reported
-quarter. Two stocks with identical ratios score identically. That's the joke.
+You can disagree with any threshold. The fact underneath it is still there, and
+the raw number is in the table below it.
 
 ---
 
-## Live data
+## What's on a card
 
-The bundled figures in `universe.js` are **illustrative placeholders**, not
-market data — the app says so on screen while it's in demo mode. To get real
-numbers:
+| Section | What it holds |
+|---|---|
+| **Header** | Price, day move, market cap, position in the 52-week range |
+| **Earnings** | Next reporting date, before/after the bell, consensus EPS |
+| **For / against** | Up to six of each, derived from thresholds on the real figures |
+| **The numbers** | P/E, P/B, P/S, revenue and EPS growth, three margin lines, ROE, debt/equity, current ratio, yield, beta, 3-month and 1-year returns |
+| **Last full year, as filed** | Revenue, net income, operating cash flow, capex, free cash flow, cash, long-term debt, equity — straight from XBRL |
+| **Straight from the 10-K** | The company's own description of what it does, the risk factors it lists, and links to the filing itself |
 
-1. Grab a free key at [finnhub.io/register](https://finnhub.io/register).
-2. Open **Settings → Live market data**, paste it, hit **Save**.
+Scroll the card to read it all. Drag it sideways, use <kbd>←</kbd> / <kbd>→</kbd>,
+or hit the buttons. <kbd>↑</kbd> / <kbd>↓</kbd> scroll.
 
-The key is stored in your browser's `localStorage` and sent only to `finnhub.io`.
-It never touches a server of mine, because there isn't one.
+## The cart
 
-Three endpoints are used per stock — `/quote`, `/stock/profile2` and
-`/stock/metric` — all available on the free tier, which allows 60 calls/minute.
-The app pre-fetches a few cards ahead, so swiping stays instant, and falls back
-to the demo row for any ticker the API can't serve.
+Swiping right stores the ticker, the price at the moment you added it, and a note
+field. The cart shows what each pick has done since — so it doubles as a record
+of what you were thinking and when. Export to CSV whenever.
 
-Because this is a purely client-side app, **a key pasted here is visible to
-anyone with access to that browser profile.** Use a free key, and revoke it from
-the Finnhub dashboard when you're done.
+Everything is in `localStorage`. No account, no backend, nothing leaves the browser.
 
 ---
 
-## Running it locally
+## How the data gets here
 
-No build step, no dependencies. It's three files and a data file.
+A static site can't fetch this itself — SEC blocks cross-origin requests for
+filings and XBRL, and an API key in client-side JavaScript is a public API key.
+So the work happens in a **GitHub Action** that runs every weekday morning:
+
+```
+.github/workflows/refresh.yml  →  scripts/refresh.mjs
+```
+
+Which does:
+
+1. **Finnhub** — `/quote` and `/stock/metric` per company, plus one bulk
+   `/calendar/earnings` call for upcoming report dates. Rate-limited to stay
+   inside the free tier's 60 calls/minute.
+2. **SEC XBRL `frames`** — one request per concept returns that figure for *every*
+   filer at once, so ~20 requests cover the balance sheet and cash flow for all 500.
+3. **SEC EDGAR submissions** — the latest 10-K and 10-Q per company: accession
+   number, filing date, period, direct link.
+4. **The 10-K itself** — downloaded and parsed for Item 1 (Business) and the
+   Item 1A risk-factor headings. Cached under `data/filings/<TICKER>.json` and
+   keyed by accession number, so a filing is only ever downloaded once. After the
+   first run this is a couple of documents a day, not five hundred.
+
+Output lands in `data/snapshot.json` (market data, ~1MB) and
+`data/filings/*.json` (10-K prose, lazy-loaded per card). The Action commits
+both back to the repo; GitHub Pages serves them as static files.
+
+### Setting it up on your own fork
+
+1. Get a free key at [finnhub.io/register](https://finnhub.io/register).
+2. **Settings → Secrets and variables → Actions → New repository secret**,
+   named `FINNHUB_TOKEN`.
+3. Optionally set a repository *variable* `SEC_USER_AGENT` to
+   `Your Name your@email.com` — SEC asks that automated requests identify themselves.
+4. **Actions → Refresh market data → Run workflow.** First run takes 30–60
+   minutes because it downloads every 10-K; later runs are a few minutes.
+
+The key never reaches the browser. That is the entire reason the pipeline works
+this way.
+
+Handy inputs when running it manually: `limit` (only process the first N
+companies) and `skip_filings` (set to `1` to skip 10-K downloads).
+
+---
+
+## Running locally
 
 ```bash
 git clone https://github.com/respectking/tikstock.git
@@ -95,59 +108,61 @@ python3 -m http.server 8080
 # open http://localhost:8080
 ```
 
-Opening `index.html` straight off the filesystem mostly works, but a local server
-avoids `file://` quirks.
+The page needs `data/snapshot.json` to show anything; if it's missing you get a
+setup screen instead. To build one yourself:
 
----
-
-## Publishing
-
-The repo is already a valid GitHub Pages site — static files at the root, plus a
-`.nojekyll` so nothing gets swallowed by the Jekyll build.
-
-**Settings → Pages → Source: Deploy from a branch → `main` / `(root)` → Save.**
-
-Live at [respectking.github.io/tikstock](https://respectking.github.io/tikstock/).
-
----
-
-## Adding stocks
-
-`universe.js` is one array of plain objects. Add a row and it shows up in
-the deck:
-
-```js
-{ t:"TICK", n:"Company Name", s:"Sector", p:100.00, d:0.5, mc:120,
-  pe:22.4, pb:4.1, roe:18.2, nm:12.4, rg:8.1, eg:11.2,
-  beta:1.05, lo:78.0, hi:131.0, dy:1.2, r13:4.1, r52:9.8 }
+```bash
+FINNHUB_TOKEN=xxx LIMIT=20 SKIP_FILINGS=1 node scripts/refresh.mjs
 ```
 
-Use `null` for anything you don't have. In live mode only the `t`, `n` and `s`
-fields matter — everything else is replaced by the API — so a new ticker just
-needs those three plus enough placeholder numbers to keep the demo mode honest.
+---
+
+## The screens
+
+Each one is a single rule, applied to the latest snapshot:
+
+| Screen | Rule |
+|---|---|
+| Low P/E | trailing P/E below 15 and positive |
+| Fast growing | revenue growth ≥ 15% year over year |
+| High margin | net margin ≥ 18% |
+| Pays 2%+ | indicated dividend yield ≥ 2% |
+| Net cash | cash on hand exceeds long-term debt |
+| Near 52wk low | price in the bottom quarter of its 52-week range |
+| Earnings < 30d | next report within 30 days |
+| Mega caps | market cap ≥ $200B |
+
+Plus sector filters and a search box. Companies you have swiped are hidden until
+you ask for them back.
+
+---
+
+## Known limits
+
+- **The constituent list is a static file.** `data/sp500.json` is a point-in-time
+  snapshot of the index. Companies that join or leave won't be picked up until
+  someone edits it; tickers Finnhub can't price are logged as `skipped` in the
+  snapshot and dropped from the deck.
+- **10-K parsing is heuristic.** Finding "Item 1A" in a document that has no
+  consistent markup across 500 filers means some companies parse cleanly and
+  others don't. When parsing fails the card says so and links to the filing.
+- **Ratios come from Finnhub, financials from SEC.** They cover different periods
+  (trailing twelve months vs last fiscal year), so a margin in "The numbers"
+  won't always reconcile with "Last full year, as filed". Both are labelled.
+- **The pros and cons are thresholds, not analysis.** They have no view on
+  management, competition, or anything that happened after the last filing.
 
 ---
 
 ## Design notes
 
-Dark-first, one accent hue. The score gauge, the factor meters and the 52-week
-range all use a **single blue ramp** because they encode magnitude, not identity
-— a rainbow across five meters would imply the factors are different *kinds* of
-thing rather than different amounts of the same 0–100 scale.
+Dark, one accent hue. Up and down moves carry a ▲/▼ glyph and a signed number as
+well as colour, so nothing depends on colour alone. `prefers-reduced-motion` and
+`forced-colors` are honoured. The swipe gesture locks to an axis on the first
+8px of movement, so dragging sideways swipes and dragging vertically scrolls the
+card.
 
-Up and down moves use green and red, but **never colour alone**: every delta
-carries a ▲/▼ glyph and a signed number, and the swipe stamps pair their colour
-with an arrow icon and the words "Bullish" / "Pass". The full stat table under
-the gauge is the accessible view of everything the meters show.
-
-`prefers-reduced-motion` and `forced-colors` are both honoured.
-
----
-
-## Browser support
-
-Any current browser. It uses pointer events, `<dialog>`, and CSS custom
-properties — no polyfills, no transpiling, no IE.
+No framework, no build step. Three files and some JSON.
 
 ## Licence
 
