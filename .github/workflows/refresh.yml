@@ -44,11 +44,16 @@ jobs:
           SKIP_FILINGS: ${{ github.event.inputs.skip_filings }}
         run: node scripts/refresh.mjs
 
+      - name: Build the static company pages
+        env:
+          SITE_ORIGIN: https://stockornot.com
+        run: node scripts/build-pages.mjs
+
       - name: Commit if anything changed
         run: |
           git config user.name  "tikstock-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/snapshot.json data/filings data/detail
+          git add data/snapshot.json data/filings data/detail stock sitemap.xml robots.txt
           if git diff --cached --quiet; then
             echo "No data changes."
           else

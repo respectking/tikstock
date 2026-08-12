@@ -1,0 +1,49 @@
+name: Build company pages
+
+# Regenerates the static per-company pages from whatever data is already
+# committed. Takes seconds, hits no APIs — so template changes can ship without
+# waiting on a full data refresh. The data refresh also runs this itself.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/build-pages.mjs"
+      - "lib/analysis.mjs"
+      - "data/snapshot.json"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Generate pages
+        env:
+          SITE_ORIGIN: https://stockornot.com
+        run: node scripts/build-pages.mjs
+
+      - name: Commit if anything changed
+        run: |
+          git config user.name  "stockornot-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add stock sitemap.xml robots.txt
+          if git diff --cached --quiet; then
+            echo "Pages unchanged."
+          else
+            git commit -m "Rebuild company pages"
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
