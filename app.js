@@ -1,5 +1,5 @@
 /* ==========================================================================
-   TikStock
+   StockOrNot
    Every S&P 500 company, one card at a time. The card shows the whole picture
    up front — valuation, growth, margins, balance sheet, next earnings date and
    what the company's own 10-K says — and you decide. Swipe right to put it in
@@ -578,6 +578,14 @@ function makeCard(s, depth) {
         : "No 10-K on file for this ticker."));
   }
 
+  /* ---------- into the full record ---------- */
+  var more = el("button", "more-btn");
+  more.type = "button";
+  more.innerHTML = '<span>Open the full record</span>' +
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+  more.addEventListener("click", function (ev) { ev.stopPropagation(); openDetail(s); });
+  body.appendChild(more);
+
   /* ---------- scroll affordance ---------- */
   var fade = el("div", "card-fade");
   card.appendChild(fade);
@@ -634,10 +642,18 @@ function attachDrag(entry) {
   function release(ev) {
     if (!drag || (ev.pointerId !== undefined && ev.pointerId !== drag.id)) return;
     var dx = drag.dx, axis = drag.axis;
-    var speed = Math.abs(dx) / Math.max(1, Date.now() - drag.t0);
+    var held = Date.now() - drag.t0;
+    var speed = Math.abs(dx) / Math.max(1, held);
+    var moved = Math.abs((ev.clientX || drag.x0) - drag.x0) + Math.abs((ev.clientY || drag.y0) - drag.y0);
     drag = null;
     card.classList.remove("is-drag");
     scroller.style.overflowY = "";
+
+    /* a still, short press is a tap — open the full record */
+    if (axis === null && moved < 8 && held < 500) {
+      openDetail(state.byTicker[entry.ticker]);
+      return;
+    }
     if (axis !== "x") return;
 
     if (Math.abs(dx) > 110 || (Math.abs(dx) > 55 && speed > 0.6)) {
@@ -889,6 +905,423 @@ function renderSearch(q) {
   });
 }
 
+/* ====================================================== DETAIL SHEET =====
+   Everything that doesn't fit on the card: a five-year price chart, the
+   financial statements as filed, what analysts think, and the whole risk
+   section rather than the first five lines of it.
+   ======================================================================== */
+
+var deepCache = {};
+
+function loadDeep(ticker) {
+  if (deepCache[ticker] !== undefined) return Promise.resolve(deepCache[ticker]);
+  var safe = ticker.replace(/[^A-Z0-9.]/gi, "_");
+  return fetch("data/detail/" + encodeURIComponent(safe) + ".json", { cache: "no-cache" })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (j) { deepCache[ticker] = j; return j; })
+    .catch(function () { deepCache[ticker] = null; return null; });
+}
+
+/* ---------------------------------------------------------- price chart */
+
+var CHART_W = 720, CHART_H = 240, PAD_L = 4, PAD_R = 4, PAD_T = 12, PAD_B = 22;
+
+function niceTicks(lo, hi, count) {
+  var span = hi - lo;
+  if (span <= 0) return [lo];
+  var raw = span / count;
+  var mag = Math.pow(10, Math.floor(Math.log(raw) / Math.LN10));
+  var step = [1, 2, 2.5, 5, 10].map(function (m) { return m * mag; })
+    .filter(function (s) { return s >= raw; })[0] || 10 * mag;
+  var out = [], v = Math.ceil(lo / step) * step;
+  while (v <= hi + 1e-9) { out.push(v); v += step; }
+  return out;
+}
+
+function buildChart(points, months) {
+  var wrap = el("div", "chart-wrap");
+  if (!points || points.length < 5) {
+    wrap.appendChild(el("p", "block-note", "No price history available for this ticker."));
+    return wrap;
+  }
+
+  var cut = months
+    ? new Date(Date.now() - months * 30.5 * 864e5).toISOString().slice(0, 10)
+    : "0000";
+  var pts = points.filter(function (p) { return p[0] >= cut; });
+  if (pts.length < 5) pts = points.slice(-Math.max(5, Math.round(points.length / 4)));
+
+  var vals = pts.map(function (p) { return p[1]; });
+  var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+  var pad = (hi - lo) * 0.08 || hi * 0.05 || 1;
+  lo -= pad; hi += pad;
+
+  var innerW = CHART_W - PAD_L - PAD_R, innerH = CHART_H - PAD_T - PAD_B;
+  var xOf = function (i) { return PAD_L + (i / (pts.length - 1)) * innerW; };
+  var yOf = function (v) { return PAD_T + (1 - (v - lo) / (hi - lo)) * innerH; };
+
+  var line = "", area = "";
+  pts.forEach(function (p, i) {
+    var cmd = (i === 0 ? "M" : "L") + xOf(i).toFixed(1) + " " + yOf(p[1]).toFixed(1);
+    line += cmd; area += cmd;
+  });
+  area += "L" + xOf(pts.length - 1).toFixed(1) + " " + (PAD_T + innerH) + "L" + PAD_L + " " + (PAD_T + innerH) + "Z";
+
+  var first = pts[0][1], last = pts[pts.length - 1][1];
+  var move = ((last - first) / first) * 100;
+
+  var svgNS = "http://www.w3.org/2000/svg";
+  var svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("viewBox", "0 0 " + CHART_W + " " + CHART_H);
+  svg.setAttribute("class", "pricechart");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label",
+    "Price from " + pts[0][0] + " to " + pts[pts.length - 1][0] +
+    ", " + price(first) + " to " + price(last) + ", " + pct(move, 1));
+
+  function add(tag, attrs, cls) {
+    var n = document.createElementNS(svgNS, tag);
+    Object.keys(attrs).forEach(function (k) { n.setAttribute(k, attrs[k]); });
+    if (cls) n.setAttribute("class", cls);
+    svg.appendChild(n);
+    return n;
+  }
+
+  niceTicks(lo, hi, 3).forEach(function (v) {
+    add("line", { x1: PAD_L, x2: CHART_W - PAD_R, y1: yOf(v).toFixed(1), y2: yOf(v).toFixed(1) }, "grid");
+    var t = add("text", { x: PAD_L + 2, y: (yOf(v) - 4).toFixed(1) }, "axis");
+    t.textContent = price(v);
+  });
+
+  /* year boundaries as sparse x labels */
+  var seenYear = null;
+  pts.forEach(function (p, i) {
+    var y = p[0].slice(0, 4);
+    if (y !== seenYear) {
+      seenYear = y;
+      if (i > 2 && i < pts.length - 2) {
+        var t = add("text", { x: xOf(i).toFixed(1), y: CHART_H - 6, "text-anchor": "middle" }, "axis");
+        t.textContent = y;
+      }
+    }
+  });
+
+  add("path", { d: area }, "area");
+  add("path", { d: line, "vector-effect": "non-scaling-stroke" }, "line");
+
+  var cross = add("line", { x1: 0, x2: 0, y1: PAD_T, y2: PAD_T + innerH }, "crosshair");
+  var dot = add("circle", { cx: 0, cy: 0, r: 4.5 }, "cursor-dot");
+  cross.style.opacity = dot.style.opacity = 0;
+
+  wrap.appendChild(svg);
+
+  var tip = el("div", "chart-tip");
+  tip.hidden = true;
+  wrap.appendChild(tip);
+
+  var caption = el("p", "chart-caption");
+  caption.innerHTML = "";
+  var moveSpan = el("span", "delta small " + (move > 0.05 ? "up" : move < -0.05 ? "down" : "flat"));
+  moveSpan.appendChild(el("span", "arrow", move > 0.05 ? "▲" : move < -0.05 ? "▼" : "–"));
+  moveSpan.appendChild(el("span", "", pct(move, 1) + " over this window"));
+  caption.appendChild(el("span", "", pts[0][0] + " → " + pts[pts.length - 1][0]));
+  caption.appendChild(moveSpan);
+  wrap.appendChild(caption);
+
+  function place(ev) {
+    var box = svg.getBoundingClientRect();
+    var rel = (ev.clientX - box.left) / box.width;
+    var i = clamp(Math.round(rel * (pts.length - 1)), 0, pts.length - 1);
+    var px = xOf(i), py = yOf(pts[i][1]);
+    cross.setAttribute("x1", px); cross.setAttribute("x2", px);
+    dot.setAttribute("cx", px); dot.setAttribute("cy", py);
+    cross.style.opacity = dot.style.opacity = 1;
+    tip.hidden = false;
+    tip.innerHTML = "<b>" + price(pts[i][1]) + "</b><span>" + dateShort(pts[i][0]) + "</span>";
+    var leftPct = (px / CHART_W) * 100;
+    tip.style.left = clamp(leftPct, 8, 92) + "%";
+  }
+  svg.addEventListener("pointermove", place);
+  svg.addEventListener("pointerdown", place);
+  svg.addEventListener("pointerleave", function () {
+    cross.style.opacity = dot.style.opacity = 0;
+    tip.hidden = true;
+  });
+
+  return wrap;
+}
+
+/* ------------------------------------------------ financials, as filed */
+
+var HISTORY_ROWS = [
+  { key: "revenue",     label: "Revenue" },
+  { key: "grossProfit", label: "Gross profit" },
+  { key: "opIncome",    label: "Operating income" },
+  { key: "netIncome",   label: "Net income" },
+  { key: "ocf",         label: "Operating cash flow" },
+  { key: "capex",       label: "Capital expenditure" },
+  { key: "assets",      label: "Total assets" },
+  { key: "liabs",       label: "Total liabilities" },
+  { key: "equity",      label: "Shareholder equity" },
+  { key: "cash",        label: "Cash" },
+  { key: "debt",        label: "Long-term debt" }
+];
+
+function buildHistory(deep) {
+  var box = el("div", "");
+  var h = deep && deep.history;
+  if (!h || !h.revenue) {
+    box.appendChild(el("p", "block-note", "No multi-year figures could be pulled from this filer's XBRL data."));
+    return box;
+  }
+
+  var years = Object.keys(h.revenue).map(Number).sort(function (a, b) { return b - a; }).slice(0, 5);
+
+  var table = el("table", "fin-table");
+  var thead = el("thead");
+  var hr = el("tr");
+  hr.appendChild(el("th", "", ""));
+  years.forEach(function (y) { hr.appendChild(el("th", "", "FY" + y)); });
+  thead.appendChild(hr);
+  table.appendChild(thead);
+
+  var tb = el("tbody");
+  HISTORY_ROWS.forEach(function (row) {
+    if (!h[row.key]) return;
+    var tr = el("tr");
+    var th = el("th", "", row.label); th.scope = "row";
+    tr.appendChild(th);
+    years.forEach(function (y) { tr.appendChild(el("td", "", money(h[row.key][y]))); });
+    tb.appendChild(tr);
+  });
+
+  /* free cash flow and the margins are derived, so mark them as such */
+  if (h.ocf && h.capex) {
+    var tr = el("tr", "is-derived");
+    var th = el("th", "", "Free cash flow"); th.scope = "row";
+    tr.appendChild(th);
+    years.forEach(function (y) {
+      var o = h.ocf[y], c = h.capex[y];
+      tr.appendChild(el("td", "", num(o) && num(c) ? money(o - c) : "—"));
+    });
+    tb.appendChild(tr);
+  }
+  [["grossProfit", "Gross margin"], ["opIncome", "Operating margin"], ["netIncome", "Net margin"]]
+    .forEach(function (pair) {
+      if (!h[pair[0]]) return;
+      var tr2 = el("tr", "is-derived");
+      var th2 = el("th", "", pair[1]); th2.scope = "row";
+      tr2.appendChild(th2);
+      years.forEach(function (y) {
+        var v = h[pair[0]][y], r = h.revenue[y];
+        tr2.appendChild(el("td", "", num(v) && num(r) && r !== 0 ? ((v / r) * 100).toFixed(1) + "%" : "—"));
+      });
+      tb.appendChild(tr2);
+    });
+  if (h.shares) {
+    var trS = el("tr");
+    var thS = el("th", "", "Diluted shares"); thS.scope = "row";
+    trS.appendChild(thS);
+    years.forEach(function (y) { trS.appendChild(el("td", "", num(h.shares[y]) ? money(h.shares[y], false) : "—")); });
+    tb.appendChild(trS);
+  }
+
+  table.appendChild(tb);
+  box.appendChild(el("p", "block-note", "Straight from the company's XBRL filings. Rows in italics are derived from the rows above them."));
+  var scroll = el("div", "table-scroll");
+  scroll.appendChild(table);
+  box.appendChild(scroll);
+
+  if (h.shares) {
+    var ys = Object.keys(h.shares).map(Number).sort();
+    var oldest = h.shares[ys[0]], newest = h.shares[ys[ys.length - 1]];
+    if (num(oldest) && num(newest) && oldest > 0 && ys.length > 1) {
+      var change = ((newest - oldest) / oldest) * 100;
+      box.appendChild(el("p", "fin-note",
+        Math.abs(change) < 1
+          ? "Share count is essentially flat over " + ys.length + " years."
+          : change < 0
+            ? "Share count is down " + Math.abs(change).toFixed(1) + "% over " + ys.length + " years — buybacks have been shrinking the pie."
+            : "Share count is up " + change.toFixed(1) + "% over " + ys.length + " years — your slice has been diluted."));
+    }
+  }
+  return box;
+}
+
+/* ------------------------------------------------------- analyst view */
+
+var REC_BANDS = [
+  { key: "strongBuy",  label: "Strong buy",  cls: "rec-sb" },
+  { key: "buy",        label: "Buy",         cls: "rec-b"  },
+  { key: "hold",       label: "Hold",        cls: "rec-h"  },
+  { key: "sell",       label: "Sell",        cls: "rec-s"  },
+  { key: "strongSell", label: "Strong sell", cls: "rec-ss" }
+];
+
+function buildAnalyst(deep) {
+  var box = el("div", "");
+  var a = deep && deep.analyst;
+  if (!a || (!a.trend.length && !a.earnings.length)) {
+    box.appendChild(el("p", "block-note", "No analyst coverage data for this ticker yet."));
+    return box;
+  }
+
+  if (a.trend.length) {
+    box.appendChild(el("h4", "sub-h", "Where the ratings sit"));
+
+    var legend = el("div", "rec-legend");
+    REC_BANDS.forEach(function (b) {
+      var item = el("span", "rec-key");
+      item.appendChild(el("span", "rec-chip " + b.cls));
+      item.appendChild(el("span", "", b.label));
+      legend.appendChild(item);
+    });
+    box.appendChild(legend);
+
+    var list = el("div", "rec-rows");
+    a.trend.slice(0, 4).forEach(function (row) {
+      var total = REC_BANDS.reduce(function (s, b) { return s + (row[b.key] || 0); }, 0);
+      var r = el("div", "rec-row");
+      r.appendChild(el("span", "rec-period", (row.period || "").slice(0, 7)));
+      var bar = el("div", "rec-bar");
+      REC_BANDS.forEach(function (b) {
+        var v = row[b.key] || 0;
+        if (!v) return;
+        var seg = el("span", "rec-seg " + b.cls);
+        seg.style.width = ((v / total) * 100) + "%";
+        seg.title = b.label + ": " + v;
+        if (v / total > 0.13) seg.textContent = v;
+        bar.appendChild(seg);
+      });
+      r.appendChild(bar);
+      r.appendChild(el("span", "rec-total", total + " analysts"));
+      list.appendChild(r);
+    });
+    box.appendChild(list);
+  }
+
+  if (a.earnings.length) {
+    box.appendChild(el("h4", "sub-h", "Has it been beating estimates?"));
+    var t = el("table", "rv-table");
+    var tb = el("tbody");
+    a.earnings.slice(0, 6).forEach(function (e) {
+      var tr = el("tr");
+      var th = el("th", "", e.period); th.scope = "row";
+      tr.appendChild(th);
+      var beat = num(e.actual) && num(e.estimate) && e.actual >= e.estimate;
+      var td = el("td", "");
+      var mark = el("span", "delta small " + (beat ? "up" : "down"));
+      mark.appendChild(el("span", "arrow", beat ? "▲" : "▼"));
+      mark.appendChild(el("span", "",
+        "$" + (num(e.actual) ? e.actual.toFixed(2) : "—") +
+        " vs $" + (num(e.estimate) ? e.estimate.toFixed(2) : "—") + " expected" +
+        (num(e.surprisePct) ? " (" + pct(e.surprisePct, 1) + ")" : "")));
+      td.appendChild(mark);
+      tr.appendChild(td);
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb);
+    box.appendChild(t);
+  }
+  return box;
+}
+
+/* ------------------------------------------------------- the sheet itself */
+
+var detailTicker = null;
+
+function section(title, node) {
+  var s = el("section", "c-block");
+  s.appendChild(el("h3", "block-h", title));
+  s.appendChild(node);
+  return s;
+}
+
+function openDetail(s) {
+  if (!s) return;
+  detailTicker = s.t;
+
+  $("#detailTitle").textContent = s.t;
+  $("#detailName").textContent = s.n + " · " + s.s;
+  $("#detailPrice").textContent = price(s.price);
+  var dir = !num(s.change) ? "flat" : s.change > 0.005 ? "up" : s.change < -0.005 ? "down" : "flat";
+  var ch = $("#detailChange");
+  ch.className = "delta small " + dir;
+  ch.innerHTML = "";
+  ch.appendChild(el("span", "arrow", dir === "up" ? "▲" : dir === "down" ? "▼" : "–"));
+  ch.appendChild(el("span", "", num(s.change) ? pct(s.change, 2) : "—"));
+
+  var body = $("#detailBody");
+  body.innerHTML = "";
+  body.appendChild(el("p", "block-note", "Loading the full record…"));
+
+  openDialog($("#dlgDetail"));
+
+  Promise.all([loadDeep(s.t), loadDetail(s.t)]).then(function (both) {
+    if (detailTicker !== s.t) return;
+    var deep = both[0], filing = both[1];
+    body.innerHTML = "";
+
+    /* --- price chart with a range toggle --- */
+    var chartBox = el("div", "");
+    var ranges = el("div", "range-toggle");
+    var chartSlot = el("div", "");
+    [{ label: "1Y", months: 12 }, { label: "5Y", months: 0 }].forEach(function (r, i) {
+      var b = el("button", "chip" + (i === 1 ? " is-on" : ""), r.label);
+      b.type = "button";
+      b.addEventListener("click", function () {
+        Array.prototype.forEach.call(ranges.children, function (x) { x.classList.remove("is-on"); });
+        b.classList.add("is-on");
+        chartSlot.innerHTML = "";
+        chartSlot.appendChild(buildChart(deep && deep.chart, r.months));
+      });
+      ranges.appendChild(b);
+    });
+    chartSlot.appendChild(buildChart(deep && deep.chart, 0));
+    chartBox.appendChild(ranges);
+    chartBox.appendChild(chartSlot);
+    body.appendChild(section("Price", chartBox));
+
+    body.appendChild(section("The books, five years deep", buildHistory(deep)));
+    body.appendChild(section("What analysts say", buildAnalyst(deep)));
+
+    /* --- the filing in full --- */
+    var fbox = el("div", "");
+    if (filing && filing.business) {
+      fbox.appendChild(el("h4", "sub-h", "What the company says it does"));
+      fbox.appendChild(el("p", "filing-text", filing.business));
+    }
+    if (filing && filing.risks && filing.risks.length) {
+      fbox.appendChild(el("h4", "sub-h", "Every risk factor it lists (" + filing.risks.length + ")"));
+      var ul = el("ul", "risk-list");
+      filing.risks.forEach(function (r) { ul.appendChild(el("li", "", r)); });
+      fbox.appendChild(ul);
+    }
+    if (!filing || (!filing.business && !(filing.risks || []).length)) {
+      fbox.appendChild(el("p", "block-note", "This filing could not be parsed — open it directly below."));
+    }
+    var links = el("div", "filing-links");
+    [
+      s.sec && s.sec.tenK && { href: s.sec.tenK.url, text: "Read the 10-K (" + dateShort(s.sec.tenK.date) + ")" },
+      s.sec && s.sec.tenQ && { href: s.sec.tenQ.url, text: "Latest 10-Q (" + dateShort(s.sec.tenQ.date) + ")" },
+      { href: "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=" + (s.cik || s.t) + "&type=10-K&dateb=&owner=include&count=40",
+        text: "All filings on EDGAR" }
+    ].filter(Boolean).forEach(function (l) {
+      if (!l.href) return;
+      var a = el("a", "filing-link", l.text);
+      a.href = l.href; a.target = "_blank"; a.rel = "noopener";
+      links.appendChild(a);
+    });
+    fbox.appendChild(links);
+    body.appendChild(section("The filing", fbox));
+
+    if (deep && deep.updated) {
+      body.appendChild(el("p", "block-note", "Deep data refreshed " + relTime(deep.updated) + "."));
+    }
+    body.scrollTop = 0;
+  });
+}
+
 /* ============================================================== CHROME === */
 
 function openDialog(dlg) { if (!dlg.open) dlg.showModal(); }
@@ -967,9 +1400,23 @@ function wire() {
   var search = $("#searchBox");
   search.addEventListener("input", function () { renderSearch(search.value); });
 
+  $("#detailAdd").addEventListener("click", function () {
+    closeDialog($("#dlgDetail"));
+    commit("add");
+  });
+  $("#detailSkip").addEventListener("click", function () {
+    closeDialog($("#dlgDetail"));
+    commit("pass");
+  });
+
   document.addEventListener("keydown", function (ev) {
     if (ev.target.matches("input, textarea")) return;
     if (document.querySelector("dialog[open]")) return;
+    if (ev.key === "Enter" || ev.key === "d") {
+      var top = cards[0];
+      if (top) { ev.preventDefault(); openDetail(state.byTicker[top.ticker]); }
+      return;
+    }
     if (ev.key === "ArrowRight") { ev.preventDefault(); commit("add"); }
     else if (ev.key === "ArrowLeft") { ev.preventDefault(); commit("pass"); }
     else if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {

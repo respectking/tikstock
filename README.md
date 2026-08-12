@@ -1,4 +1,4 @@
-# TikStock
+# StockOrNot
 
 Every company in the S&P 500, one card at a time. Each card puts the whole
 picture in front of you — price, valuation, growth, margins, the balance sheet
@@ -6,7 +6,7 @@ as filed, the next earnings date, and what the company's own 10-K says about its
 business and its risks — with the arguments for and against it laid out. Then you
 decide: swipe right and it goes in your cart, left and it's gone.
 
-**→ [Open it](https://respectking.github.io/tikstock/)**
+**→ [Open it](https://stockornot.com)**
 
 > **Not investment advice.** Everything here is public data, presented plainly.
 > It can be stale, mis-parsed or wrong. Read the actual filing before you buy.
@@ -102,8 +102,8 @@ companies) and `skip_filings` (set to `1` to skip 10-K downloads).
 ## Running locally
 
 ```bash
-git clone https://github.com/respectking/tikstock.git
-cd tikstock
+git clone https://github.com/respectking/stockornot.git
+cd stockornot
 python3 -m http.server 8080
 # open http://localhost:8080
 ```
