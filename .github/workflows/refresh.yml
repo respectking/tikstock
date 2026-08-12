@@ -53,5 +53,7 @@ jobs:
             echo "No data changes."
           else
             git commit -m "Data refresh $(date -u +'%Y-%m-%d')"
-            git push
+            # someone may have pushed while this hour-long job was running
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
           fi
