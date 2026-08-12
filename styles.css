@@ -45,6 +45,8 @@ html, body {
   margin: 0;
   padding: 0;
   min-height: 100%;
+  /* a swiped card flies well past the viewport — don't let it grow the page */
+  overflow-x: hidden;
 }
 
 body {
