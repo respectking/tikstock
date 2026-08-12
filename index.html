@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<title>TikStock — swipe right on stocks you like</title>
+<meta name="description" content="A Tinder-style game for the stock market. Swipe right if you're bullish, left if you'd pass, then see the fundamentals score and find out if your gut matched the numbers." />
+<meta name="color-scheme" content="dark" />
+<meta name="theme-color" content="#0d0d0d" />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="TikStock" />
+<meta property="og:description" content="Swipe right on stocks you're bullish on. See the score. Beat your streak." />
+
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%230d0d0d'/%3E%3Cpath d='M20 66 L40 44 L56 58 L80 30' stroke='%233987e5' stroke-width='9' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<a class="skiplink" href="#deck">Skip to the deck</a>
+
+<header class="topbar">
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="22" fill="#151514"/><path d="M20 66 L40 44 L56 58 L80 30" stroke="#3987e5" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span>Tik<b>Stock</b></span>
+  </div>
+
+  <div class="topbar-stats" role="status" aria-live="polite">
+    <div class="tstat"><span class="tstat-v" id="statPlayed">0</span><span class="tstat-l">played</span></div>
+    <div class="tstat"><span class="tstat-v" id="statAgree">—</span><span class="tstat-l">in sync</span></div>
+    <div class="tstat"><span class="tstat-v" id="statStreak">0</span><span class="tstat-l">streak</span></div>
+  </div>
+
+  <div class="topbar-actions">
+    <button type="button" class="ghost-btn" id="btnList" aria-haspopup="dialog">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+      <span>My list</span>
+    </button>
+    <button type="button" class="ghost-btn" id="btnSettings" aria-haspopup="dialog">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.6v3M12 18.4v3M2.6 12h3M18.4 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1"/></svg>
+      <span>Settings</span>
+    </button>
+  </div>
+</header>
+
+<div class="databanner" id="dataBanner" hidden>
+  <span class="dot" aria-hidden="true"></span>
+  <span id="dataBannerText"></span>
+  <button type="button" class="link-btn" id="bannerAction">Connect live data</button>
+</div>
+
+<main>
+  <!-- ============ DECK ============ -->
+  <section class="stage" id="deck" aria-label="Stock deck">
+    <div class="deck-wrap">
+      <p class="deck-hint" id="deckHint">Drag the card, or use <kbd>←</kbd> <kbd>→</kbd></p>
+
+      <div class="deck" id="deckEl">
+        <div class="deck-empty" id="deckEmpty" hidden>
+          <h2>Deck cleared</h2>
+          <p id="emptyLine">You went through every stock in this universe.</p>
+          <button type="button" class="primary-btn" id="btnReshuffle">Shuffle a new deck</button>
+        </div>
+      </div>
+
+      <div class="controls" id="controls">
+        <button type="button" class="swipe-btn bear" id="btnPass" aria-label="Pass — bearish on this stock">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8l14 8M19 8v6h-6"/></svg>
+          <span>Pass</span>
+        </button>
+        <button type="button" class="swipe-btn skip" id="btnSkip" aria-label="Skip this stock without scoring it">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5l8 7-8 7M15 5v14"/></svg>
+        </button>
+        <button type="button" class="swipe-btn bull" id="btnBull" aria-label="Bullish on this stock">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 16l14-8M19 16v-6h-6"/></svg>
+          <span>Bullish</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ REVEAL ============ -->
+  <section class="reveal" id="reveal" hidden aria-label="Result">
+    <div class="reveal-card">
+      <header class="rv-head">
+        <div class="rv-id">
+          <span class="rv-ticker" id="rvTicker">—</span>
+          <span class="rv-name" id="rvName">—</span>
+        </div>
+        <div class="verdict" id="rvVerdict">
+          <span class="verdict-icon" id="rvVerdictIcon" aria-hidden="true"></span>
+          <span id="rvVerdictText">—</span>
+        </div>
+      </header>
+
+      <div class="rv-score">
+        <figure class="gauge-fig">
+          <svg class="gauge" viewBox="0 0 120 120" role="img" id="gaugeSvg" aria-labelledby="gaugeTitle">
+            <title id="gaugeTitle">Fundamentals score</title>
+            <circle class="gauge-track" cx="60" cy="60" r="50" />
+            <circle class="gauge-arc" cx="60" cy="60" r="50" id="gaugeArc" />
+          </svg>
+          <div class="gauge-center">
+            <span class="gauge-num" id="rvScore">0</span>
+            <span class="gauge-unit">/ 100</span>
+          </div>
+          <figcaption>Fundamentals score</figcaption>
+        </figure>
+
+        <div class="rv-factors" id="rvFactors">
+          <!-- factor meters injected -->
+        </div>
+      </div>
+
+      <div class="rv-range" id="rvRangeWrap">
+        <div class="rv-range-head">
+          <span>52-week range</span>
+          <span class="rv-range-pos" id="rvRangePos">—</span>
+        </div>
+        <div class="rangebar" id="rangeBar">
+          <div class="rangebar-track"></div>
+          <div class="rangebar-fill" id="rangeFill"></div>
+          <div class="rangebar-marker" id="rangeMarker"><span class="rangebar-dot"></span></div>
+        </div>
+        <div class="rv-range-ends">
+          <span id="rangeLow">—</span>
+          <span id="rangeHigh">—</span>
+        </div>
+      </div>
+
+      <table class="rv-table">
+        <caption class="sr-only">Key statistics</caption>
+        <tbody id="rvStats"></tbody>
+      </table>
+
+      <p class="rv-why" id="rvWhy"></p>
+
+      <footer class="rv-foot">
+        <button type="button" class="primary-btn" id="btnNext">Next stock →</button>
+      </footer>
+    </div>
+  </section>
+</main>
+
+<!-- ============ SETTINGS DIALOG ============ -->
+<dialog class="sheet" id="dlgSettings" aria-labelledby="settingsTitle">
+  <form method="dialog" class="sheet-inner">
+    <header class="sheet-head">
+      <h2 id="settingsTitle">Settings</h2>
+      <button class="icon-btn" value="close" aria-label="Close settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+
+    <div class="sheet-body">
+      <section class="field">
+        <h3>Live market data</h3>
+        <p class="hint">
+          TikStock pulls quotes and fundamentals straight from
+          <a href="https://finnhub.io/register" target="_blank" rel="noopener">Finnhub</a>.
+          The free tier is enough. Paste your key below — it is stored only in this
+          browser and is sent only to finnhub.io.
+        </p>
+        <div class="key-row">
+          <input type="password" id="apiKey" placeholder="Finnhub API key" autocomplete="off" spellcheck="false" />
+          <button type="button" class="primary-btn small" id="btnSaveKey">Save</button>
+        </div>
+        <p class="key-status" id="keyStatus"></p>
+        <button type="button" class="link-btn danger" id="btnClearKey" hidden>Remove key &amp; use demo data</button>
+      </section>
+
+      <section class="field">
+        <h3>Universe</h3>
+        <p class="hint">Which stocks land in your deck.</p>
+        <div class="chips" id="universeChips" role="radiogroup" aria-label="Universe"></div>
+      </section>
+
+      <section class="field">
+        <h3>Reset</h3>
+        <p class="hint">Clears your score, streak and saved list.</p>
+        <button type="button" class="link-btn danger" id="btnReset">Reset everything</button>
+      </section>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============ LIST DIALOG ============ -->
+<dialog class="sheet" id="dlgList" aria-labelledby="listTitle">
+  <form method="dialog" class="sheet-inner">
+    <header class="sheet-head">
+      <h2 id="listTitle">My list</h2>
+      <button class="icon-btn" value="close" aria-label="Close list">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="sheet-body">
+      <div class="tabs" role="tablist">
+        <button type="button" class="tab is-on" data-tab="bull" role="tab" aria-selected="true">Bullish</button>
+        <button type="button" class="tab" data-tab="bear" role="tab" aria-selected="false">Passed</button>
+      </div>
+      <table class="list-table">
+        <caption class="sr-only">Stocks you have swiped</caption>
+        <thead>
+          <tr><th scope="col">Stock</th><th scope="col">Score</th><th scope="col">Match</th></tr>
+        </thead>
+        <tbody id="listBody"></tbody>
+      </table>
+      <p class="empty-note" id="listEmpty" hidden>Nothing here yet — go swipe a few.</p>
+    </div>
+  </form>
+</dialog>
+
+<footer class="sitefoot">
+  <p><b>Not investment advice.</b> The score is a toy model built from public fundamentals. It does not predict returns and nobody should trade on it.</p>
+  <p class="muted">Built as a static site · <a href="https://github.com" id="repoLink" target="_blank" rel="noopener">source on GitHub</a></p>
+</footer>
+
+<script src="universe.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
