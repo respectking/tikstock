@@ -140,11 +140,12 @@ function prosAndCons(s) {
   if (num(s.pe) && s.pe > 0) {
     if (s.pe < 13)      add(pros, 8, "Cheap on earnings at " + x(s.pe) + " — well under the market's usual 20×.");
     else if (s.pe < 18) add(pros, 5, "Reasonably priced at " + x(s.pe) + " earnings.");
-    else if (s.pe > 60) add(cons, 9, "Very expensive at " + x(s.pe) + " earnings — years of growth are already in the price.");
-    else if (s.pe > 35) add(cons, 6, "Pricey at " + x(s.pe) + " earnings.");
+    else if (s.pe > 55) add(cons, 9, "Very expensive at " + x(s.pe) + " earnings — years of growth are already in the price.");
+    else if (s.pe > 30) add(cons, 6, "Pricey at " + x(s.pe) + " earnings, against a long-run market average nearer 20×.");
   }
   if (num(s.pb) && s.pb > 0 && s.pb < 1.3) add(pros, 6, "Trades at " + x(s.pb, 2) + " book value — below what the balance sheet says it owns.");
-  if (num(s.ps) && s.ps > 15)              add(cons, 6, "Priced at " + x(s.ps) + " sales, which leaves no room for a stumble.");
+  if (num(s.pb) && s.pb > 20)              add(cons, 5, "Priced at " + x(s.pb, 0) + " book value — there is very little hard asset backing here.");
+  if (num(s.ps) && s.ps > 12)              add(cons, 6, "Priced at " + x(s.ps) + " sales, which leaves no room for a stumble.");
 
   /* ---- growth ---- */
   if (num(s.rg)) {
