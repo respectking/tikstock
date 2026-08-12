@@ -675,6 +675,23 @@ async function main() {
     stocks
   };
 
+  /* A LIMIT run only touches the companies it processed. Merging rather than
+     replacing means a six-company smoke test can never wipe the other 495 —
+     which is exactly what it did once before this guard existed. */
+  if (LIMIT) {
+    const prior = await fs.readFile(path.join(DATA, "snapshot.json"), "utf8")
+      .then(JSON.parse).catch(() => null);
+    if (prior?.stocks?.length) {
+      const fresh = new Map(stocks.map((s) => [s.t, s]));
+      snapshot.stocks = prior.stocks.map((s) => fresh.get(s.t) || s);
+      for (const s of stocks) if (!prior.stocks.some((p) => p.t === s.t)) snapshot.stocks.push(s);
+      snapshot.counts.companies = snapshot.stocks.length;
+      snapshot.counts.partialRun = stocks.length;
+      snapshot.skipped = prior.skipped || [];
+      console.log(`Limited run: merged ${stocks.length} companies into the existing ${prior.stocks.length}.`);
+    }
+  }
+
   await fs.writeFile(path.join(DATA, "snapshot.json"), JSON.stringify(snapshot));
   console.log(
     `\nDone in ${((Date.now() - started) / 60000).toFixed(1)} min\n` +
