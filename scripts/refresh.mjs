@@ -109,14 +109,14 @@ function pickMetric(m, ...keys) {
    handful of calls covers all 500 companies. */
 
 const FRAME_CONCEPTS = [
-  { key: "revenue",   tags: ["RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues", "SalesRevenueNet"], kind: "duration" },
+  { key: "revenue",   tags: ["RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues", "SalesRevenueNet", "RevenueFromContractWithCustomerIncludingAssessedTax"], kind: "duration" },
   { key: "netIncome", tags: ["NetIncomeLoss"],                                     kind: "duration" },
-  { key: "ocf",       tags: ["NetCashProvidedByUsedInOperatingActivities"],        kind: "duration" },
-  { key: "capex",     tags: ["PaymentsToAcquirePropertyPlantAndEquipment"],        kind: "duration" },
+  { key: "ocf",       tags: ["NetCashProvidedByUsedInOperatingActivities", "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"], kind: "duration" },
+  { key: "capex",     tags: ["PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets"], kind: "duration" },
   { key: "assets",    tags: ["Assets"],                                            kind: "instant"  },
   { key: "liabs",     tags: ["Liabilities"],                                       kind: "instant"  },
   { key: "equity",    tags: ["StockholdersEquity"],                                kind: "instant"  },
-  { key: "cash",      tags: ["CashAndCashEquivalentsAtCarryingValue"],             kind: "instant"  },
+  { key: "cash",      tags: ["CashAndCashEquivalentsAtCarryingValue", "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"], kind: "instant" },
   { key: "debt",      tags: ["LongTermDebtNoncurrent", "LongTermDebt"],            kind: "instant"  }
 ];
 
@@ -147,6 +147,37 @@ async function loadFrames(years) {
     }
   }
   return byCik;
+}
+
+/* Frames are organised by calendar year, so a filer whose fiscal year ends in
+   August or November shows up in none of them. For those, ask for the concept
+   directly and take the most recent annual figure they actually reported. */
+async function conceptFallback(cik, concept) {
+  for (const tag of concept.tags) {
+    const url = `https://data.sec.gov/api/xbrl/companyconcept/CIK${cik}/us-gaap/${tag}.json`;
+    const json = await sec(url, `concept ${tag}`);
+    const units = json?.units?.USD;
+    if (!units?.length) continue;
+
+    const annual = units.filter((u) => {
+      if (u.form !== "10-K" || !u.end) return false;
+      if (concept.kind === "instant") return !u.start;
+      if (!u.start) return false;
+      const days = (new Date(u.end) - new Date(u.start)) / 864e5;
+      return days > 300 && days < 400;          /* a full year, not a quarter */
+    });
+    if (!annual.length) continue;
+
+    annual.sort((a, b) => (a.end < b.end ? 1 : -1));
+    const latest = annual[0];
+    const prior = annual.find((u) => u.end.slice(0, 4) === String(Number(latest.end.slice(0, 4)) - 1));
+    return {
+      value: numOrNull(latest.val),
+      prior: prior ? numOrNull(prior.val) : null,
+      fy: Number(latest.end.slice(0, 4))
+    };
+  }
+  return null;
 }
 
 /* ------------------------------------------------------------ EDGAR filings */
@@ -181,65 +212,109 @@ const stripTags = (html) =>
     .replace(/\s+/g, " ")
     .trim();
 
-/** Slice the raw HTML between two Item headings, skipping the table of contents. */
-function sliceItem(html, startRe, endRe) {
+/* 10-K markup is wildly inconsistent between filers. Normalising the invisible
+   whitespace entities first is what makes "Item&#160;1A." findable at all. */
+function normalizeHtml(html) {
+  return html.replace(/&nbsp;|&#160;|&#xa0;|&#xA0;/g, " ");
+}
+
+/* Build a regex for an Item heading that tolerates tags and entities appearing
+   between every single token — "Item", "1A", the punctuation and the word. */
+function itemRe(number, word, flags) {
+  const gap = "(?:\\s|<[^>]*>)*";
+  return new RegExp(`item${gap}${number}${gap}[.:\\-—]?${gap}${word}`, flags);
+}
+
+/** Slice the HTML between two Item headings, skipping the table of contents. */
+function sliceItem(html, startRe, endRe, minLen = 1500) {
   const starts = [...html.matchAll(startRe)].map((m) => m.index);
   if (!starts.length) return null;
   /* the ToC mention comes first and is followed almost immediately by the next
-     item, so prefer the last start that has a decent run of text after it */
+     item, so prefer the start with the longest run of content after it */
   let best = null;
   for (const s of starts) {
     const rest = html.slice(s);
     const e = rest.search(endRe);
     const len = e === -1 ? rest.length : e;
-    if (len > 3000 && (!best || len > best.len)) best = { s, len };
+    if (len > minLen && (!best || len > best.len)) best = { s, len };
   }
   if (!best) return null;
-  return html.slice(best.s, best.s + Math.min(best.len, 900000));
+  return html.slice(best.s, best.s + Math.min(best.len, 1200000));
 }
 
-/** Bold / italic runs read as the risk-factor headings in nearly every 10-K. */
-function headingsFrom(htmlChunk) {
+const BOILERPLATE = /^(table of contents|part\s+[ivx]+|item\s+\d|risk factors?|forward-looking|see also|index)/i;
+
+function usableHeading(text) {
+  if (text.length < 35 || text.length > 230) return false;
+  if (!/[a-z]/.test(text)) return false;              /* skip ALL-CAPS chrome */
+  if (BOILERPLATE.test(text)) return false;
+  if (!/\s/.test(text)) return false;
+  return true;
+}
+
+/** Risk-factor headings: bold/italic tags, or spans styled bold. */
+function headingsFrom(chunk) {
   const out = [];
   const seen = new Set();
-  const re = /<(b|strong|em|i)[^>]*>([\s\S]{0,600}?)<\/\1>/gi;
-  let m;
-  while ((m = re.exec(htmlChunk)) !== null) {
-    const text = stripTags(m[2]);
-    if (text.length < 35 || text.length > 220) continue;
-    if (!/[a-z]/.test(text)) continue;                 /* skip ALL-CAPS headers */
-    if (/^item\s+\d/i.test(text)) continue;
-    if (/^(table of contents|part\s+[ivx]+)$/i.test(text)) continue;
+  const push = (raw) => {
+    const text = stripTags(raw);
+    if (!usableHeading(text)) return;
     const key = text.toLowerCase().slice(0, 60);
-    if (seen.has(key)) continue;
+    if (seen.has(key)) return;
     seen.add(key);
-    out.push(text.replace(/\s*[.;]\s*$/, ""));
-    if (out.length >= 12) break;
+    out.push(text.replace(/\s*[.;:]\s*$/, ""));
+  };
+
+  let m;
+  const tagRe = /<(b|strong|em|i)[^>]*>([\s\S]{0,800}?)<\/\1>/gi;
+  while ((m = tagRe.exec(chunk)) !== null && out.length < 14) push(m[2]);
+
+  if (out.length < 3) {
+    /* many filers style headings inline instead of using <b> */
+    const styleRe = /<(span|p|div)[^>]*style="[^"]*font-(?:weight|style)\s*:\s*(?:bold|700|800|italic)[^"]*"[^>]*>([\s\S]{0,800}?)<\/\1>/gi;
+    while ((m = styleRe.exec(chunk)) !== null && out.length < 14) push(m[2]);
   }
+
+  if (out.length < 3) {
+    /* last resort: pull sentences that actually state a risk */
+    const text = stripTags(chunk);
+    const sentences = text.split(/(?<=[.!?])\s+/);
+    for (const s of sentences) {
+      const t = s.trim().replace(/\s*[.;:]\s*$/, "");
+      if (t.length < 60 || t.length > 230) continue;
+      if (!/\b(could|may|might|risk|adversely|failure|unable|depend)\b/i.test(t)) continue;
+      if (BOILERPLATE.test(t)) continue;
+      const key = t.toLowerCase().slice(0, 60);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(t);
+      if (out.length >= 10) break;
+    }
+  }
+
   return out;
 }
 
 async function fetchFilingDetail(ticker, tenK) {
   if (!tenK?.url) return null;
-  const html = await getText(tenK.url, { headers: { "User-Agent": UA }, gate: secGate, label: `10-K ${ticker}` });
-  if (!html || html.length < 5000) return null;
+  const raw = await getText(tenK.url, { headers: { 'User-Agent': UA }, gate: secGate, label: `10-K ${ticker}` });
+  if (!raw || raw.length < 5000) return null;
+  const html = normalizeHtml(raw);
 
-  const bizChunk = sliceItem(
-    html,
-    /item[\s ]*1[\s ]*[.:\-—]?[\s ]*(<[^>]*>[\s ]*)*business/gi,
-    /item[\s ]*1a[\s ]*[.:\-—]?[\s ]*(<[^>]*>[\s ]*)*risk/i
-  );
-  const riskChunk = sliceItem(
-    html,
-    /item[\s ]*1a[\s ]*[.:\-—]?[\s ]*(<[^>]*>[\s ]*)*risk/gi,
-    /item[\s ]*(1b|2)[\s ]*[.:\-—]/i
-  );
+  const bizChunk = sliceItem(html, itemRe('1', 'business', 'gi'), itemRe('1a', 'risk', 'i'));
+
+  let riskChunk = sliceItem(html, itemRe('1a', 'risk', 'gi'), itemRe('(?:1b|2)', '[a-z]', 'i'));
+  if (!riskChunk) {
+    /* some filers never write "Item 1A" in the body — find the section heading */
+    riskChunk = sliceItem(html, /risk\s*factors/gi, itemRe('(?:1b|2)', '[a-z]', 'i'));
+  }
 
   let business = null;
   if (bizChunk) {
-    const text = stripTags(bizChunk).replace(/^item[\s ]*1[.:\-—\s]*business[\s.:-]*/i, "");
-    /* skip boilerplate incorporation sentences, keep the first real paragraphs */
-    business = text.slice(0, 900).replace(/\s+\S*$/, "") + (text.length > 900 ? "…" : "");
+    const text = stripTags(bizChunk)
+      .replace(/^item\s*1\s*[.:\-—]?\s*business[\s.:-]*/i, '')
+      .replace(/^general[\s.:-]*/i, '');
+    business = text.slice(0, 950).replace(/\s+\S*$/, '') + (text.length > 950 ? '…' : '');
     if (business.length < 120) business = null;
   }
 
@@ -260,9 +335,9 @@ async function main() {
 
   /* --- upcoming earnings, one bulk call ---------------------------------- */
   const today = new Date();
-  const in120 = new Date(today.getTime() + 120 * 864e5);
+  const horizon = new Date(today.getTime() + 200 * 864e5);
   const fmt = (d) => d.toISOString().slice(0, 10);
-  const cal = await finnhub(`/calendar/earnings?from=${fmt(today)}&to=${fmt(in120)}`);
+  const cal = await finnhub(`/calendar/earnings?from=${fmt(today)}&to=${fmt(horizon)}`);
   const earnings = new Map();
   for (const e of cal?.earningsCalendar || []) {
     if (!earnings.has(e.symbol)) {
@@ -281,7 +356,7 @@ async function main() {
 
   const stocks = [];
   const skipped = [];
-  let filingsFetched = 0, filingsCached = 0;
+  let filingsFetched = 0, filingsCached = 0, fellBack = 0;
 
   for (let i = 0; i < companies.length; i++) {
     const c = companies[i];
@@ -299,6 +374,16 @@ async function main() {
       continue;
     }
     const m = metricRes?.metric || {};
+
+    /* The bulk calendar only carries dates that are already announced, which is
+       a minority of the index at any moment. Ask per symbol for the rest. */
+    if (!earnings.has(c.t)) {
+      const one = await finnhub(`/calendar/earnings?symbol=${encodeURIComponent(c.t)}&from=${fmt(today)}&to=${fmt(horizon)}`);
+      const row = one?.earningsCalendar?.[0];
+      if (row?.date) {
+        earnings.set(c.t, { date: row.date, epsEst: numOrNull(row.epsEstimate), hour: row.hour || null });
+      }
+    }
 
     /* -- SEC filing history -- */
     const sub = await sec(`https://data.sec.gov/submissions/CIK${c.cik}.json`, `submissions ${c.t}`);
@@ -324,8 +409,25 @@ async function main() {
     }
 
     const f = frames.get(c.cik) || {};
-    const yr = (k) => f[k]?.[year - 1] ?? null;
-    const prev = (k) => f[k]?.[year - 2] ?? null;
+    let yr = (k) => f[k]?.[year - 1] ?? null;
+    let prev = (k) => f[k]?.[year - 2] ?? null;
+    let finFy = year - 1;
+
+    /* A filer with a non-calendar fiscal year appears in no CY frame. Ask for
+       its concepts directly rather than showing a card with no financials. */
+    if (yr("revenue") === null && yr("netIncome") === null) {
+      const direct = {};
+      for (const concept of FRAME_CONCEPTS) {
+        const hit = await conceptFallback(c.cik, concept);
+        if (hit) { direct[concept.key] = hit; finFy = hit.fy || finFy; }
+      }
+      if (Object.keys(direct).length) {
+        yr = (k) => direct[k]?.value ?? f[k]?.[year - 1] ?? null;
+        prev = (k) => direct[k]?.prior ?? f[k]?.[year - 2] ?? null;
+        fellBack++;
+      }
+    }
+
     const ocf = yr("ocf"), capex = yr("capex");
 
     stocks.push({
@@ -370,7 +472,7 @@ async function main() {
         cash: yr("cash"), debt: yr("debt"),
         ocf, capex,
         fcf: ocf !== null && capex !== null ? ocf - capex : null,
-        fy: year - 1
+        fy: finFy
       },
 
       /* the 10-K prose lives in data/filings/<TICKER>.json and is lazy-loaded by
@@ -408,7 +510,9 @@ async function main() {
     `\nDone in ${((Date.now() - started) / 60000).toFixed(1)} min\n` +
     `  ${stocks.length} companies, ${skipped.length} skipped${skipped.length ? ` (${skipped.join(", ")})` : ""}\n` +
     `  ${snapshot.counts.withFinancials} with SEC financials, ${withFilings} with 10-K contents\n` +
-    `  10-Ks: ${filingsFetched} downloaded, ${filingsCached} from cache`
+    `  10-Ks: ${filingsFetched} downloaded, ${filingsCached} from cache
+` +
+    `  ${fellBack} companies needed a direct XBRL lookup (non-calendar fiscal year)`
   );
 }
 
