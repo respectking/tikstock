@@ -32,6 +32,9 @@ const UA    = process.env.SEC_USER_AGENT || "TikStock open-source project contac
 const LIMIT = process.env.LIMIT ? Number(process.env.LIMIT) : 0;
 const SKIP_FILINGS = process.env.SKIP_FILINGS === "1";
 
+/* Bump when the 10-K parser changes so cached extractions are redone once. */
+const PARSER_VERSION = 3;
+
 if (!TOKEN) {
   console.error("FINNHUB_TOKEN is not set. Add it under Settings -> Secrets and variables -> Actions.");
   process.exit(1);
@@ -305,10 +308,18 @@ async function fetchFilingDetail(ticker, tenK) {
 
   const bizChunk = sliceItem(html, itemRe('1', 'business', 'gi'), itemRe('1a', 'risk', 'i'));
 
-  let riskChunk = sliceItem(html, itemRe('1a', 'risk', 'gi'), itemRe('(?:1b|2)', '[a-z]', 'i'));
+  /* Three passes, each looser than the last. Filers are inconsistent enough
+     that no single pattern finds the risk section in all 500 documents. */
+  let riskChunk =
+    sliceItem(html, itemRe('1a', 'risk', 'gi'), itemRe('(?:1b|2)', '[a-z]', 'i')) ||
+    sliceItem(html, /risk\s*factors/gi, itemRe('(?:1b|2)', '[a-z]', 'i'), 800) ||
+    sliceItem(html, itemRe('1a', 'risk', 'gi'), /item(?:\s|<[^>]*>)*(?:1b|2)/i, 800);
+
   if (!riskChunk) {
-    /* some filers never write "Item 1A" in the body — find the section heading */
-    riskChunk = sliceItem(html, /risk\s*factors/gi, itemRe('(?:1b|2)', '[a-z]', 'i'));
+    /* nothing bounded the section — take a slab after the last heading and let
+       the heading filter sort it out */
+    const hits = [...html.matchAll(/risk\s*factors/gi)].map((m) => m.index);
+    if (hits.length) riskChunk = html.slice(hits[hits.length - 1], hits[hits.length - 1] + 300000);
   }
 
   let business = null;
@@ -398,13 +409,13 @@ async function main() {
     if (tenK) {
       let cached = null;
       try { cached = JSON.parse(await fs.readFile(cachePath, "utf8")); } catch { /* first run */ }
-      if (cached?.accession === tenK.accession) {
+      if (cached?.accession === tenK.accession && cached.v === PARSER_VERSION) {
         detail = cached.detail;
         filingsCached++;
       } else if (!SKIP_FILINGS) {
         detail = await fetchFilingDetail(c.t, tenK);
         if (detail) {
-          await fs.writeFile(cachePath, JSON.stringify({ accession: tenK.accession, detail }));
+          await fs.writeFile(cachePath, JSON.stringify({ accession: tenK.accession, v: PARSER_VERSION, detail }));
           filingsFetched++;
         }
       }
