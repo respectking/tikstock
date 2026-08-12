@@ -39,7 +39,18 @@ const PARSER_VERSION = 3;
 /* Recommendation trends move monthly, so a slice of the index each night keeps
    every company under a week old without doubling the run time. */
 const ANALYST_TTL_DAYS = 6;
-const ANALYST_BUDGET   = 160;
+const ANALYST_MISS_TTL = 2;    /* a ticker that came back empty waits this long */
+const ANALYST_BUDGET   = 520;  /* high enough to fill the whole index in one run */
+
+/* Every ticker starts stale, so the first run fetches all 501. Left at a flat
+   TTL they would then all come due again on the same day, spiking one run a
+   week. A fixed per-ticker offset spreads the re-fetches instead: each run
+   picks up roughly a tenth of the index. */
+function analystTtl(ticker) {
+  let h = 0;
+  for (let i = 0; i < ticker.length; i++) h = (h * 31 + ticker.charCodeAt(i)) >>> 0;
+  return ANALYST_TTL_DAYS + (h % 6);   /* 6-11 days */
+}
 
 if (!TOKEN) {
   console.error("FINNHUB_TOKEN is not set. Add it under Settings -> Secrets and variables -> Actions.");
@@ -480,7 +491,7 @@ async function main() {
 
   await fs.mkdir(FILING_DIR, { recursive: true });
   await fs.mkdir(DETAIL_DIR, { recursive: true });
-  let analystSpent = 0, chartsOk = 0;
+  let analystSpent = 0, chartsOk = 0, analystOk = 0, analystEmpty = 0;
 
   const stocks = [];
   const skipped = [];
@@ -581,20 +592,33 @@ async function main() {
     const chart = (await priceHistory(c.t)) || priorDetail?.chart || null;
     if (chart) chartsOk++;
 
-    const analystAge = priorDetail?.analystAt
-      ? (Date.now() - new Date(priorDetail.analystAt)) / 864e5
-      : Infinity;
-    let analyst = priorDetail?.analyst || null;
+    const ageOf = (stamp) => (stamp ? (Date.now() - new Date(stamp)) / 864e5 : Infinity);
+    let analyst   = priorDetail?.analyst || null;
     let analystAt = priorDetail?.analystAt || null;
-    if (analystAge > ANALYST_TTL_DAYS && analystSpent < ANALYST_BUDGET) {
+    let analystMissAt = priorDetail?.analystMissAt || null;
+
+    /* Two clocks: fresh data ages out after its jittered TTL, and a ticker that
+       came back empty backs off for a couple of days instead of being retried
+       every single run — which is what quietly ate the old budget. */
+    const missCooled = ageOf(analystMissAt) > ANALYST_MISS_TTL;
+    const due = missCooled && (analyst ? ageOf(analystAt) > analystTtl(c.t) : true);
+
+    if (due && analystSpent < ANALYST_BUDGET) {
       const fresh = await analystView(c.t);
       analystSpent++;
-      if (fresh) { analyst = fresh; analystAt = new Date().toISOString(); }
+      if (fresh) {
+        analyst = fresh; analystAt = new Date().toISOString(); analystMissAt = null;
+        analystOk++;
+      } else {
+        analystMissAt = new Date().toISOString();
+        analystEmpty++;
+        console.warn(`  ! ${c.t}: analyst view came back empty`);
+      }
     }
 
     await fs.writeFile(detailPath, JSON.stringify({
       t: c.t, updated: new Date().toISOString(),
-      fy: finFy, history, chart, analyst, analystAt
+      fy: finFy, history, chart, analyst, analystAt, analystMissAt
     }));
 
     stocks.push({
@@ -700,7 +724,9 @@ async function main() {
     `\nDone in ${((Date.now() - started) / 60000).toFixed(1)} min\n` +
     `  ${stocks.length} companies, ${skipped.length} skipped${skipped.length ? ` (${skipped.join(", ")})` : ""}\n` +
     `  ${snapshot.counts.withFinancials} with SEC financials, ${withFilings} with 10-K contents\n` +
-    `  ${withCharts} with a price chart, ${withAnalyst} with an analyst view (${analystSpent} refreshed this run)
+    `  ${withCharts} with a price chart, ${withAnalyst} with an analyst view
+` +
+    `  analyst calls: ${analystSpent} attempted, ${analystOk} returned data, ${analystEmpty} came back empty
 ` +
     `  10-Ks: ${filingsFetched} downloaded, ${filingsCached} from cache
 ` +
