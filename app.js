@@ -185,7 +185,8 @@ function prosAndCons(s) {
     else if (f.debt > f.cash * 5) add(cons, 6, "Long-term debt of " + money(f.debt) + " against " + money(f.cash) + " of cash.");
   }
   if (num(s.de)) {
-    if (s.de < 0.4)      add(pros, 5, "Barely leveraged — debt is " + x(s.de, 2) + " equity.");
+    if (s.de < 0.05)     add(pros, 5, "Carries essentially no debt.");
+    else if (s.de < 0.4) add(pros, 5, "Barely leveraged — debt is " + x(s.de, 2) + " equity.");
     else if (s.de > 2.5) add(cons, 7, "Heavily leveraged — debt is " + x(s.de, 1) + " equity.");
   }
   if (num(s.cr)) {
