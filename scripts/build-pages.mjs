@@ -13,7 +13,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {
   num, money, cap, price, pct, pctPlain, x, dateShort, rangePos,
-  FACTORS, scoreStock, scoreLabel, prosAndCons
+  FACTORS, scoreStock, scoreLabel, prosAndCons,
+  splitAdjustShares, shareCountNote
 } from "../lib/analysis.mjs";
 
 const ROOT   = path.resolve(import.meta.dirname, "..");
@@ -120,14 +121,18 @@ function historyTable(history) {
       return `<td>${esc(num(v) && num(r) && r !== 0 ? ((v / r) * 100).toFixed(1) + "%" : "—")}</td>`;
     }).join("")}</tr>`;
   }
-  if (history.shares) {
+  const adjShares = splitAdjustShares(history.shares).shares;
+  if (adjShares) {
     derived += `<tr><th scope="row">Diluted shares</th>${years
-      .map((y) => `<td>${esc(num(history.shares[y]) ? money(history.shares[y], false) : "—")}</td>`).join("")}</tr>`;
+      .map((y) => `<td>${esc(num(adjShares[y]) ? money(adjShares[y], false) : "—")}</td>`).join("")}</tr>`;
   }
+
+  const note = shareCountNote(history.shares);
 
   return `<div class="table-scroll"><table class="fin-table">
 <thead><tr><th></th>${years.map((y) => `<th>FY${y}</th>`).join("")}</tr></thead>
-<tbody>${body}${derived}</tbody></table></div>`;
+<tbody>${body}${derived}</tbody></table></div>` +
+    (note ? `<p class="fin-note">${esc(note)}</p>` : "");
 }
 
 /* ------------------------------------------------------------- one company */
