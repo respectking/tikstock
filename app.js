@@ -43,6 +43,7 @@ var state = {
   details: {},            /* lazy-loaded 10-K contents, keyed by ticker */
   updated: null,
   user:    null,          /* set once auth resolves; null means signed out */
+  authPending: false,     /* true while we are still finding out */
   busy:    false
 };
 
@@ -242,7 +243,7 @@ function scoreRing(res, big) {
   box.appendChild(wrap);
   box.appendChild(cap2);
   box.title = num(v)
-    ? "Fundamentals score " + v + " out of 100 — " + lab.word.toLowerCase()
+    ? "Fundamentals score " + v + " out of 100, " + lab.word.toLowerCase()
     : "Not enough data to score this one";
   return box;
 }
@@ -346,7 +347,7 @@ function makeCard(s, depth) {
     if (d !== null && d >= 0 && d <= 14) eb.classList.add("is-soon");
     eb.innerHTML =
       '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>' +
-      '<span><b>Next earnings ' + when + '</b> — ' + dateShort(e.date) +
+      '<span><b>Next earnings ' + when + '</b> on ' + dateShort(e.date) +
       (e.hour ? ' (' + (e.hour === "bmo" ? "before the open" : e.hour === "amc" ? "after the close" : e.hour) + ')' : '') +
       (num(e.epsEst) ? ' · street expects ' + (e.epsEst < 0 ? "-" : "") + "$" + Math.abs(e.epsEst).toFixed(2) + ' EPS' : '') +
       '</span>';
@@ -459,7 +460,7 @@ function makeCard(s, depth) {
     loadDetail(s.t).then(function (d) {
       if (!card.isConnected) return;
       slot.innerHTML = "";
-      if (!d) { slot.appendChild(el("p", "block-note", "Couldn't parse this filing — use the link below.")); return; }
+      if (!d) { slot.appendChild(el("p", "block-note", "Couldn't parse this filing. Use the link below.")); return; }
 
       if (d.business) {
         var bh = el("h4", "sub-h", "What the company says it does");
@@ -483,14 +484,14 @@ function makeCard(s, depth) {
         }
       }
       if (!d.business && !(d.risks || []).length) {
-        slot.appendChild(el("p", "block-note", "Nothing extractable from this filing — open it directly below."));
+        slot.appendChild(el("p", "block-note", "Nothing extractable from this filing. Open it directly below."));
       }
     });
   } else {
     slot.innerHTML = "";
     slot.appendChild(el("p", "block-note",
       s.sec && s.sec.tenK
-        ? "The text of this 10-K hasn't been parsed yet — open it directly below."
+        ? "The text of this 10-K hasn't been parsed yet. Open it directly below."
         : "No 10-K on file for this ticker."));
   }
 
@@ -647,7 +648,7 @@ function setSyncNote(status) {
   if (!n) return;
   n.hidden = !state.user;
   n.textContent = status === "offline"
-    ? "Not saved — will retry"
+    ? "Not saved, will retry"
     : status === "saving" ? "Saving…" : "Saved to your account";
   n.classList.toggle("is-warn", status === "offline");
 }
@@ -1126,7 +1127,7 @@ function buildAnalyst(deep) {
      street genuinely publishes nothing on this ticker. Say which. */
   if (!trend.length && !surprises.length) {
     box.appendChild(el("p", "block-note", !deep
-      ? "This company's deep data hasn't been built yet — it arrives with the next daily refresh."
+      ? "This company's deep data hasn't been built yet. It arrives with the next daily refresh."
       : "No analyst ratings or earnings-surprise history are published for this ticker."));
     return box;
   }
@@ -1281,7 +1282,7 @@ function openDetail(s) {
       fbox.appendChild(ul);
     }
     if (!filing || (!filing.business && !(filing.risks || []).length)) {
-      fbox.appendChild(el("p", "block-note", "This filing could not be parsed — open it directly below."));
+      fbox.appendChild(el("p", "block-note", "This filing could not be parsed. Open it directly below."));
     }
     var links = el("div", "filing-links");
     [
@@ -1326,7 +1327,7 @@ function setupScreen(reason) {
         "<a href='https://finnhub.io/register' target='_blank' rel='noopener'>Finnhub</a> API key " +
         "stored as the repository secret <code>FINNHUB_TOKEN</code>. Once that's set, run the " +
         "<b>Refresh market data</b> workflow and this page fills in."
-      : "The snapshot exists but is empty — check the workflow logs in the Actions tab.",
+      : "The snapshot exists but is empty. Check the workflow logs in the Actions tab.",
     [
       { label: "Open the Actions tab", onClick: function () { window.open(repo + "/actions", "_blank", "noopener"); } },
       { label: "Set up the key", kind: "link", onClick: function () {
@@ -1430,10 +1431,17 @@ function renderAuthButton() {
   var btn = $("#btnAuth");
   if (!auth.isConfigured()) { btn.hidden = true; return; }
   btn.hidden = false;
-  $("#authLabel").textContent = state.user
+
+  /* Three states, not two. The library loads from a CDN, so for the first
+     moment of every page load we do not yet know who you are. Saying "Sign in"
+     during that gap tells an already-signed-in person they have been thrown
+     out, which is how this looked broken even when the session was fine. */
+  var label = state.user
     ? (state.user.email || "Account").split("@")[0]
-    : "Sign in";
-  btn.classList.toggle("accent", !state.user);
+    : state.authPending ? "Signing in…" : "Sign in";
+  $("#authLabel").textContent = label;
+  btn.classList.toggle("accent", !state.user && !state.authPending);
+  btn.classList.toggle("is-pending", !state.user && !!state.authPending);
 }
 
 function openAuth() {
@@ -1497,7 +1505,9 @@ function wireAuth() {
     state.user = user;
     renderAuthButton();
     setSyncNote("saved");
+    state.authPending = false;
     if (user) {
+      auth.tidyUrl();
       adoptAccountCart();
       if ($("#dlgAuth").open) {
         $("#authWho").textContent = user.email || "your account";
@@ -1509,14 +1519,20 @@ function wireAuth() {
   });
 
   auth.currentUser().then(function (user) {
+    state.authPending = false;
     state.user = user;
     renderAuthButton();
+    auth.tidyUrl();
     if (user) adoptAccountCart();
   });
 }
 
 function init() {
   wire();
+  /* Decided synchronously, before any network call: either a session is already
+     in storage or this page load is the return leg of a sign-in link. Either
+     way somebody is signed in, and the header should not claim otherwise. */
+  state.authPending = auth.isConfigured() && (auth.hasStoredSession() || auth.isAuthCallback());
   wireAuth();
   renderAuthButton();
   renderCartCount();

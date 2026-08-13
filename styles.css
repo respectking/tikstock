@@ -772,3 +772,7 @@ body.docpage .ghost-btn { text-decoration: none; }
   height: 1px;
   background: var(--line);
 }
+
+/* While we are still working out whether someone is signed in. Quieter than
+   the signed-out state so it does not read as a call to action. */
+.ghost-btn.is-pending { opacity: .6; pointer-events: none; }
