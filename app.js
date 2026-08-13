@@ -362,20 +362,34 @@ function makeCard(s, depth) {
   var pc = prosAndCons(s);
   var pcWrap = el("div", "c-pc");
 
+  /* The card shows at most four of each. A company with six strengths and one
+     worry used to bury the worry below the fold, which is the one line a
+     person most needs to see. The count in the heading says what is being
+     held back, and the detail sheet lists all of it. */
+  var CARD_MAX = 4;
+
   function column(kind, title, items, glyph) {
     var col = el("section", "pc-col " + kind);
+    var shown = items.slice(0, CARD_MAX);
+
     var h = el("h3", "");
     h.appendChild(el("span", "pc-glyph", glyph));
     h.appendChild(el("span", "", title));
+    if (items.length) h.appendChild(el("span", "pc-count", String(items.length)));
     col.appendChild(h);
+
     if (!items.length) {
       col.appendChild(el("p", "pc-none", kind === "pro"
         ? "Nothing in the numbers stands out as a strength."
         : "Nothing in the numbers stands out as a concern."));
     } else {
       var ul = el("ul", "");
-      items.forEach(function (t) { ul.appendChild(el("li", "", t)); });
+      shown.forEach(function (t) { ul.appendChild(el("li", "", t)); });
       col.appendChild(ul);
+      if (items.length > shown.length) {
+        col.appendChild(el("p", "pc-more",
+          "and " + (items.length - shown.length) + " more, tap for the rest"));
+      }
     }
     return col;
   }

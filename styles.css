@@ -776,3 +776,95 @@ body.docpage .ghost-btn { text-decoration: none; }
 /* While we are still working out whether someone is signed in. Quieter than
    the signed-out state so it does not read as a call to action. */
 .ghost-btn.is-pending { opacity: .6; pointer-events: none; }
+
+/* --------------------------------------------- cart layout at phone width
+   Two things went wrong once the cart had real content in it. The header
+   crushed "Your cart" onto two lines to make room for the summary beside it,
+   and a long delta like "+16.9% since you added it" wrapped so the arrow was
+   orphaned on its own line. Both only appeared with three items and real
+   numbers in them, which is why an empty cart looked fine. */
+
+.sheet-head h2 { white-space: nowrap; }
+
+.head-note {
+  min-width: 0;          /* lets it shrink instead of shoving the title */
+  flex: 1 1 auto;
+  line-height: 1.35;
+}
+
+/* Keep the price and its change on one line each, and let the company name
+   take whatever room is left rather than the other way round. */
+.ci-prices { flex: 0 0 auto; white-space: nowrap; }
+.ci-prices .delta { justify-content: flex-end; }
+.ci-id { flex: 1 1 auto; }
+
+@media (max-width: 460px) {
+  /* Below this the summary and the title genuinely cannot share a row. Stack
+     them instead of letting the browser hyphenate the title. */
+  .sheet-head { flex-wrap: wrap; row-gap: 2px; }
+  .sheet-head h2 { flex: 1 1 auto; }
+  .sheet-head .icon-btn { order: 2; margin-left: auto; }
+  .head-note { order: 3; flex-basis: 100%; text-align: left; margin-left: 0; }
+
+  /* The delta reads better under the price than squeezed beside the ticker. */
+  .ci-prices .delta { font-size: 12px; }
+  .ci-name { max-width: 40vw; }
+}
+
+/* ====================================================== layout revisions ===
+   Three things the full-resolution screenshots made obvious.
+   ========================================================================= */
+
+/* 1. The score is the most interesting thing on the card and it was the
+      smallest element on it. Bigger ring, bigger number, same corner. */
+.score-ring { width: 58px; height: 58px; }
+.score-ring circle { stroke-width: 5; }
+.score-ring .sr-num { font-size: 20px; }
+
+/* 2. Counts on the pros and cons headings, so "6 for, 1 against" reads at a
+      glance instead of having to be counted. The count sits in muted ink
+      rather than the section colour: the coloured glyph beside it already
+      carries which side this is, and repeating that in the number would make
+      the badge compete with the lines underneath. */
+.pc-col h3 { display: flex; align-items: center; gap: 7px; }
+.pc-count {
+  margin-left: auto;
+  min-width: 19px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--ink-2);
+  font-size: 11.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.pc-more {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  color: var(--ink-muted);
+}
+
+/* 3. The header carried brand, filter, sign-in, cart, deck position and data
+      age. On a phone that wrapped to two full-weight rows and ate the top of
+      the card. The buttons stay; the two status figures drop to a hairline
+      that reads as caption rather than chrome. */
+@media (max-width: 700px) {
+  .topbar { padding-block: 9px; gap: 8px 10px; }
+  .topmeta {
+    order: 3; width: 100%; margin: 0;
+    justify-content: flex-start;
+    font-size: 11px;
+    opacity: .72;
+  }
+  .ghost-btn { max-width: 132px; }
+  /* the deck gains back what the header gave up */
+  .deck { height: calc(100dvh - 236px); }
+}
+
+@media (max-width: 380px) {
+  /* At this width the wordmark and three buttons genuinely do not fit. The
+     logo alone still identifies the site, and the buttons are what people
+     came to press. */
+  .brand span { display: none; }
+}
