@@ -1,0 +1,108 @@
+{
+  "ranAt": "2026-08-13T23:59:54.742Z",
+  "snapshotUpdated": "2026-08-13T23:59:54.460Z",
+  "companies": 501,
+  "deep": {
+    "present": 501,
+    "charts": 0,
+    "analysts": 500
+  },
+  "verdict": "published with warnings",
+  "findings": [
+    {
+      "level": "warn",
+      "code": "range-inconsistent",
+      "msg": "1 companies have a 52-week range that disagrees with the price.",
+      "tickers": [
+        "BRK.B"
+      ],
+      "count": 1
+    },
+    {
+      "level": "warn",
+      "code": "balance-sheet-gap",
+      "msg": "4 balance sheets do not add up (assets vs liabilities + equity). Usually the equity tag is parent-only and the company carries large noncontrolling interests — common in asset managers. Worth checking before assuming a parsing bug.",
+      "tickers": [
+        "ARES 15% off",
+        "BX 28% off",
+        "FCX 20% off",
+        "TKO 36% off"
+      ],
+      "count": 4
+    },
+    {
+      "level": "warn",
+      "code": "financials-missing",
+      "msg": "4 companies have no financials.",
+      "tickers": [
+        "APA",
+        "GS",
+        "SYF",
+        "TFC"
+      ],
+      "count": 4
+    },
+    {
+      "level": "warn",
+      "code": "earnings-missing",
+      "msg": "4 companies have no earnings.",
+      "tickers": [
+        "BDX",
+        "SATS",
+        "Q",
+        "SWKS"
+      ],
+      "count": 4
+    },
+    {
+      "level": "warn",
+      "code": "filings-missing",
+      "msg": "4 companies have no filings.",
+      "tickers": [
+        "CINF",
+        "EXPD",
+        "MLM",
+        "SYF"
+      ],
+      "count": 4
+    },
+    {
+      "level": "warn",
+      "code": "share-count-step",
+      "msg": "36 companies show a step change in share count (split, or mixed filing conventions).",
+      "tickers": [
+        "AMCR FY2022→FY2023 ×0.08",
+        "APH FY2021→FY2022 ×1.99",
+        "APO FY2021→FY2022 ×2.47",
+        "ANET FY2021→FY2022 ×3.97",
+        "AVGO FY2021→FY2022 ×9.86",
+        "COF FY2024→FY2025 ×1.41",
+        "CVNA FY2022→FY2023 ×1.99",
+        "CMG FY2021→FY2022 ×49.21",
+        "CTAS FY2021→FY2022 ×3.92",
+        "COO FY2021→FY2022 ×3.99",
+        "DECK FY2021→FY2022 ×5.76",
+        "ETR FY2021→FY2022 ×2.04",
+        "EXE FY2024→FY2025 ×1.53",
+        "FAST FY2022→FY2023 ×1.99",
+        "GRMN FY2021→FY2022 ×999.99",
+        "IBKR FY2022→FY2023 ×4.18",
+        "IP FY2024→FY2025 ×1.43",
+        "KLAC FY2023→FY2024 ×9.71",
+        "LRCX FY2021→FY2022 ×9.66",
+        "NFLX FY2022→FY2023 ×9.96",
+        "NVDA FY2021→FY2022 ×9.89",
+        "ORLY FY2022→FY2023 ×14.08",
+        "ODFL FY2021→FY2022 ×1.94",
+        "PANW FY2022→FY2023 ×2.32",
+        "O FY2021→FY2022 ×1.48"
+      ],
+      "count": 36
+    },
+    {
+      "level": "warn",
+      "code": "charts-missing",
+      "msg": "Only 0 of 501 companies have a price chart."
+    }
+  ]
+}
