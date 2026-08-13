@@ -176,7 +176,6 @@ function renderDeck() {
   cards = [];
 
   var remaining = state.deck.length - state.cursor;
-  $("#btnSkip").disabled = $("#btnAdd").disabled = remaining === 0;
   $("#deckPos").textContent = remaining
     ? (state.cursor + 1) + " of " + state.deck.length
     : "0 left";
@@ -1335,7 +1334,6 @@ function setupScreen(reason) {
       } }
     ]
   );
-  $("#btnSkip").disabled = $("#btnAdd").disabled = true;
   $("#deckPos").textContent = "—";
 }
 
@@ -1349,8 +1347,6 @@ function repoUrl() {
 /* ================================================================ INIT === */
 
 function wire() {
-  $("#btnAdd").addEventListener("click", function () { commit("add"); });
-  $("#btnSkip").addEventListener("click", function () { commit("pass"); });
 
   $("#btnCart").addEventListener("click", function () { renderCart(); openDialog($("#dlgCart")); });
   $("#btnFilter").addEventListener("click", function () { openDialog($("#dlgFilter")); });
