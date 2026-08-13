@@ -243,7 +243,7 @@ function scoreRing(res, big) {
   box.appendChild(cap2);
   box.title = num(v)
     ? "Fundamentals score " + v + " out of 100, " + lab.word.toLowerCase()
-    : "Not enough data to score this one";
+    : "Not enough reported data to score this one";
   return box;
 }
 
@@ -440,7 +440,7 @@ function makeCard(s, depth) {
       ["Total equity",   money(f.equity)]
     ].forEach(function (p) { g2.appendChild(statRow(p[0], p[1])); });
     sec2.appendChild(g2);
-    sec2.appendChild(el("p", "block-note", "Pulled from the company's XBRL filings on SEC EDGAR."));
+    sec2.appendChild(el("p", "block-note", "Taken from the company's own filings at SEC EDGAR."));
     body.appendChild(sec2);
   }
 
@@ -473,7 +473,7 @@ function makeCard(s, depth) {
     loadDetail(s.t).then(function (d) {
       if (!card.isConnected) return;
       slot.innerHTML = "";
-      if (!d) { slot.appendChild(el("p", "block-note", "Couldn't parse this filing. Use the link below.")); return; }
+      if (!d) { slot.appendChild(el("p", "block-note", "This filing could not be read automatically. The original is linked below.")); return; }
 
       if (d.business) {
         var bh = el("h4", "sub-h", "What the company says it does");
@@ -497,15 +497,15 @@ function makeCard(s, depth) {
         }
       }
       if (!d.business && !(d.risks || []).length) {
-        slot.appendChild(el("p", "block-note", "Nothing extractable from this filing. Open it directly below."));
+        slot.appendChild(el("p", "block-note", "Nothing could be read out of this filing. The original is linked below."));
       }
     });
   } else {
     slot.innerHTML = "";
     slot.appendChild(el("p", "block-note",
       s.sec && s.sec.tenK
-        ? "The text of this 10-K hasn't been parsed yet. Open it directly below."
-        : "No 10-K on file for this ticker."));
+        ? "This 10-K has not been read yet. The original is linked below."
+        : "No annual report on file for this company."));
   }
 
   /* ---------- into the full record ---------- */
@@ -763,7 +763,7 @@ function renderCart() {
 
     var note = el("textarea", "ci-note");
     note.rows = 2;
-    note.placeholder = "Why did this one interest you?";
+    note.placeholder = "What made you keep this one? Only you will see it.";
     note.value = item.note || "";
     note.addEventListener("input", function () {
       item.note = note.value.slice(0, 600);
@@ -915,7 +915,7 @@ function niceTicks(lo, hi, count) {
 function buildChart(points, months) {
   var wrap = el("div", "chart-wrap");
   if (!points || points.length < 5) {
-    wrap.appendChild(el("p", "block-note", "No price history available for this ticker."));
+    wrap.appendChild(el("p", "block-note", "No price history for this company yet."));
     return wrap;
   }
 
@@ -1045,7 +1045,7 @@ function buildHistory(deep) {
   var box = el("div", "");
   var h = deep && deep.history;
   if (!h || !h.revenue) {
-    box.appendChild(el("p", "block-note", "No multi-year figures could be pulled from this filer's XBRL data."));
+    box.appendChild(el("p", "block-note", "This company files its numbers in a shape this reader could not follow, so there is no year-by-year history."));
     return box;
   }
 
@@ -1102,7 +1102,7 @@ function buildHistory(deep) {
   }
 
   table.appendChild(tb);
-  box.appendChild(el("p", "block-note", "Straight from the company's XBRL filings. Rows in italics are derived from the rows above them."));
+  box.appendChild(el("p", "block-note", "Taken from the company's own filings. Italic rows are worked out from the rows above them."));
   var scroll = el("div", "table-scroll");
   scroll.appendChild(table);
   box.appendChild(scroll);
@@ -1140,8 +1140,8 @@ function buildAnalyst(deep) {
      street genuinely publishes nothing on this ticker. Say which. */
   if (!trend.length && !surprises.length) {
     box.appendChild(el("p", "block-note", !deep
-      ? "This company's deep data hasn't been built yet. It arrives with the next daily refresh."
-      : "No analyst ratings or earnings-surprise history are published for this ticker."));
+      ? "The chart and analyst view for this company have not been built yet. They arrive with tomorrow's refresh."
+      : "Nobody publishes ratings or earnings estimates for this company."));
     return box;
   }
 
@@ -1295,7 +1295,7 @@ function openDetail(s) {
       fbox.appendChild(ul);
     }
     if (!filing || (!filing.business && !(filing.risks || []).length)) {
-      fbox.appendChild(el("p", "block-note", "This filing could not be parsed. Open it directly below."));
+      fbox.appendChild(el("p", "block-note", "This filing could not be read automatically. The original is linked below."));
     }
     var links = el("div", "filing-links");
     [
