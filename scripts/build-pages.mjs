@@ -144,7 +144,7 @@ function companyPage(s, filing, deep, siblings, updated) {
   const pos = rangePos(s);
   const url = `${SITE}/stock/${slug(s.t)}`;
 
-  const title = `${s.n} (${s.t}) — financials, earnings date and 10-K summary`;
+  const title = `${s.n} (${s.t}): financials, earnings date and 10-K summary`;
   const description =
     `${s.n} (${s.t}) at ${price(s.price)}, ${cap(s.mc)} market cap. ` +
     (num(s.pe) && s.pe > 0 ? `${x(s.pe)} earnings, ` : "") +
@@ -301,7 +301,7 @@ function indexPage(stocks, updated) {
 <tbody>${rows}</tbody></table></div>`;
   }).join("\n");
 
-  const title = "Every S&P 500 company — financials, earnings dates and 10-K summaries | StockOrNot";
+  const title = "Every S&P 500 company: financials, earnings dates and 10-K summaries | StockOrNot";
   const description =
     `All ${stocks.length} companies in the S&P 500, each with its valuation, margins, balance sheet ` +
     `as filed, next earnings date and the risk factors from its own 10-K.`;
@@ -320,7 +320,7 @@ ${body}
 async function main() {
   const snap = await readJSON(path.join(DATA, "snapshot.json"));
   if (!snap?.stocks?.length) {
-    console.error("No snapshot to build from — run scripts/refresh.mjs first.");
+    console.error("No snapshot to build from. Run scripts/refresh.mjs first.");
     process.exit(1);
   }
 
