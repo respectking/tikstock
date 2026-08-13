@@ -18,6 +18,7 @@ import {
   FACTORS, scoreStock, scoreLabel, prosAndCons,
   splitAdjustShares, shareCountNote
 } from "./lib/analysis.mjs";
+import * as auth from "./lib/auth.mjs";
 
 /* ---------------------------------------------------------------- storage */
 
@@ -41,6 +42,7 @@ var state = {
   byTicker: {},
   details: {},            /* lazy-loaded 10-K contents, keyed by ticker */
   updated: null,
+  user:    null,          /* set once auth resolves; null means signed out */
   busy:    false
 };
 
@@ -623,6 +625,50 @@ function commit(action) {
 
 /* ============================================================== CART ===== */
 
+/* Local first, always. The browser copy is written synchronously so the cart
+   survives a refresh whether or not anyone is signed in; the server copy is
+   debounced behind it, because the notes field fires on every keystroke and a
+   round trip per character would be absurd. A failed push is not an error the
+   user needs to see — the local copy is still correct and the next write
+   retries. */
+var pushTimer = null;
+
+function persistCart() {
+  save(LS.cart, state.cart);
+  if (!state.user) return;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(function () {
+    auth.pushCart(state.cart).then(function (ok) { setSyncNote(ok ? "saved" : "offline"); });
+  }, 800);
+}
+
+function setSyncNote(status) {
+  var n = $("#cartSync");
+  if (!n) return;
+  n.hidden = !state.user;
+  n.textContent = status === "offline"
+    ? "Not saved — will retry"
+    : status === "saving" ? "Saving…" : "Saved to your account";
+  n.classList.toggle("is-warn", status === "offline");
+}
+
+/* Signing in pulls what the account already has and folds the browser's cart
+   into it, so arriving from a second device adds to the list rather than
+   replacing it. */
+function adoptAccountCart() {
+  return auth.fetchCart().then(function (remote) {
+    if (remote === null) return;
+    var merged = auth.mergeCarts(state.cart, remote);
+    var changed = merged.length !== state.cart.length ||
+      merged.some(function (m, i) { return !state.cart[i] || state.cart[i].t !== m.t; });
+    state.cart = merged;
+    save(LS.cart, state.cart);
+    renderCartCount();
+    if ($("#dlgCart").open) renderCart();
+    if (changed || remote.length !== merged.length) return auth.pushCart(merged);
+  }).then(function () { setSyncNote("saved"); });
+}
+
 function addToCart(s) {
   if (!s) return;
   var existing = state.cart.filter(function (c) { return c.t === s.t; })[0];
@@ -633,7 +679,7 @@ function addToCart(s) {
     priceAtAdd: num(s.price) ? s.price : null,
     note: ""
   });
-  save(LS.cart, state.cart);
+  persistCart();
   renderCartCount();
   flashCart();
 }
@@ -690,7 +736,7 @@ function renderCart() {
     rm.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
     rm.addEventListener("click", function () {
       state.cart.splice(idx, 1);
-      save(LS.cart, state.cart);
+      persistCart();
       renderCart(); renderCartCount();
     });
     head.appendChild(rm);
@@ -707,7 +753,7 @@ function renderCart() {
     note.value = item.note || "";
     note.addEventListener("input", function () {
       item.note = note.value.slice(0, 600);
-      save(LS.cart, state.cart);
+      persistCart();
     });
     row.appendChild(note);
 
@@ -1319,7 +1365,7 @@ function wire() {
   $("#btnClearCart").addEventListener("click", function () {
     if (!state.cart.length) return;
     state.cart = [];
-    save(LS.cart, state.cart);
+    persistCart();
     renderCart(); renderCartCount();
   });
 
@@ -1365,8 +1411,114 @@ function wire() {
   $("#repoLink").href = repoUrl();
 }
 
+/* ============================================================== AUTH ===== */
+
+function authError(msg) {
+  var box = $("#authError");
+  box.hidden = !msg;
+  box.textContent = msg || "";
+}
+
+function showAuthStep(which) {
+  ["authEmailStep", "authCodeStep", "authSignedIn"].forEach(function (id) {
+    $("#" + id).hidden = id !== which;
+  });
+  authError("");
+}
+
+function renderAuthButton() {
+  var btn = $("#btnAuth");
+  if (!auth.isConfigured()) { btn.hidden = true; return; }
+  btn.hidden = false;
+  $("#authLabel").textContent = state.user
+    ? (state.user.email || "Account").split("@")[0]
+    : "Sign in";
+  btn.classList.toggle("accent", !state.user);
+}
+
+function openAuth() {
+  if (state.user) {
+    $("#authWho").textContent = state.user.email || "your account";
+    showAuthStep("authSignedIn");
+  } else {
+    showAuthStep("authEmailStep");
+  }
+  openDialog($("#dlgAuth"));
+}
+
+function wireAuth() {
+  if (!auth.isConfigured()) return;
+
+  $("#btnAuth").addEventListener("click", openAuth);
+
+  var pending = "";
+
+  $("#authEmailStep").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var email = $("#authEmail").value.trim();
+    if (!email) return;
+    var btn = $("#authSend");
+    btn.disabled = true; btn.textContent = "Sending…";
+    auth.sendCode(email).then(function (r) {
+      btn.disabled = false; btn.textContent = "Email me a sign-in link";
+      if (!r.ok) return authError(r.error);
+      pending = email;
+      $("#authSentTo").textContent = email;
+      showAuthStep("authCodeStep");
+      $("#authCode").focus();
+    });
+  });
+
+  $("#authCodeStep").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var code = $("#authCode").value.replace(/\D/g, "");
+    if (code.length !== 6) return authError("Paste the six-digit code, or just click the link in the email instead.");
+    var btn = $("#authVerify");
+    btn.disabled = true; btn.textContent = "Signing in…";
+    auth.verifyCode(pending, code).then(function (r) {
+      btn.disabled = false; btn.textContent = "Sign in with the code";
+      if (!r.ok) return authError(r.error);
+      $("#authCode").value = "";
+    });
+  });
+
+  $("#authBack").addEventListener("click", function () {
+    $("#authCode").value = "";
+    showAuthStep("authEmailStep");
+  });
+
+  $("#authSignOut").addEventListener("click", function () {
+    auth.signOut().then(function () { closeDialog($("#dlgAuth")); });
+  });
+
+  /* One place decides what being signed in means, so a session restored on
+     page load and a fresh sign-in take exactly the same path. */
+  auth.onAuthChange(function (user) {
+    state.user = user;
+    renderAuthButton();
+    setSyncNote("saved");
+    if (user) {
+      adoptAccountCart();
+      if ($("#dlgAuth").open) {
+        $("#authWho").textContent = user.email || "your account";
+        showAuthStep("authSignedIn");
+      }
+    } else if ($("#dlgAuth").open) {
+      showAuthStep("authEmailStep");
+    }
+  });
+
+  auth.currentUser().then(function (user) {
+    state.user = user;
+    renderAuthButton();
+    if (user) adoptAccountCart();
+  });
+}
+
 function init() {
   wire();
+  wireAuth();
+  renderAuthButton();
   renderCartCount();
   $("#showSeen").checked = !!state.filter.showSeen;
   showMessage("Loading the S&P 500…", "Pulling the latest snapshot.", []);

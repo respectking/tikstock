@@ -36,6 +36,10 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18M6 12h12M10 19h4"/></svg>
       <span id="filterLabel">All 500</span>
     </button>
+    <button type="button" class="ghost-btn" id="btnAuth" aria-haspopup="dialog" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      <span id="authLabel">Sign in</span>
+    </button>
     <button type="button" class="ghost-btn accent" id="btnCart" aria-haspopup="dialog">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h2l2.2 10.4a2 2 0 0 0 2 1.6h7.6a2 2 0 0 0 2-1.6L20.5 8H6"/><circle cx="10" cy="20" r="1.2"/><circle cx="17" cy="20" r="1.2"/></svg>
       <span>Cart</span>
@@ -112,6 +116,7 @@
     <header class="sheet-head">
       <h2 id="cartTitle">Your cart</h2>
       <span class="head-note" id="cartSummary"></span>
+      <span class="sync-note" id="cartSync" hidden></span>
       <button type="button" class="icon-btn" data-close aria-label="Close cart">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
@@ -132,6 +137,62 @@
         </button>
         <button type="button" class="link-btn danger" id="btnClearCart">Empty the cart</button>
       </div>
+    </div>
+  </div>
+</dialog>
+
+<!-- ============================ ACCOUNT ============================ -->
+<dialog class="sheet" id="dlgAuth" aria-labelledby="authTitle">
+  <div class="sheet-inner">
+    <header class="sheet-head">
+      <h2 id="authTitle">Keep your cart</h2>
+      <button type="button" class="icon-btn" data-close aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+
+    <div class="sheet-body">
+      <!-- signed out: step 1, ask for the email -->
+      <form class="auth-step" id="authEmailStep">
+        <p class="auth-blurb">
+          Your cart lives in this browser right now, so it disappears if you switch
+          devices or clear your history. Sign in and it follows you.
+        </p>
+        <label class="auth-label" for="authEmail">Email address</label>
+        <input class="auth-input" type="email" id="authEmail" name="email"
+               autocomplete="email" inputmode="email" required placeholder="you@example.com">
+        <button type="submit" class="primary-btn wide" id="authSend">Email me a sign-in link</button>
+        <p class="auth-fine">
+          No password to make up or forget. We use your
+          address to save your cart and nothing else without asking.
+        </p>
+      </form>
+
+      <!-- signed out: step 2, the code -->
+      <form class="auth-step" id="authCodeStep" hidden>
+        <p class="auth-blurb">
+          Check <b id="authSentTo"></b>. Click the sign-in link in the email and you're
+          done — you can close this. It expires in a few minutes.
+        </p>
+        <p class="auth-or"><span>or, if the email gave you a code</span></p>
+        <label class="auth-label" for="authCode">Six-digit code</label>
+        <input class="auth-input code" type="text" id="authCode" name="code"
+               inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*"
+               maxlength="6" placeholder="000000">
+        <button type="submit" class="primary-btn wide" id="authVerify">Sign in with the code</button>
+        <button type="button" class="link-btn" id="authBack">Use a different address</button>
+      </form>
+
+      <!-- signed in -->
+      <div class="auth-step" id="authSignedIn" hidden>
+        <p class="auth-blurb">
+          Signed in as <b id="authWho"></b>. Your cart saves automatically and will be
+          here on any device you sign in from.
+        </p>
+        <button type="button" class="ghost-btn wide" id="authSignOut">Sign out</button>
+      </div>
+
+      <p class="auth-error" id="authError" role="alert" hidden></p>
     </div>
   </div>
 </dialog>
