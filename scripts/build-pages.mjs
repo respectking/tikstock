@@ -76,7 +76,8 @@ ${extra}
 const foot = (updated) => `</main>
 <footer class="sitefoot">
   <p><b>Not investment advice.</b> Every figure here comes from Finnhub or the company's own
-  SEC filings and may be stale, mis-parsed or wrong. Read the actual filing before you buy anything.</p>
+  SEC filings and may be stale, mis-parsed or wrong. Read the actual filing before you buy anything.
+  <a href="/method">How the score works</a>.</p>
   <p class="muted">${updated ? "Data refreshed " + esc(dateShort(updated.slice(0, 10))) + ". " : ""}Market data by
     <a href="https://finnhub.io" rel="noopener">Finnhub</a> · filings from
     <a href="https://www.sec.gov/edgar" rel="noopener">SEC EDGAR</a> ·
@@ -359,6 +360,7 @@ async function main() {
   const urls = [
     { loc: `${SITE}/`, pri: "1.0", freq: "daily" },
     { loc: `${SITE}/stock/`, pri: "0.9", freq: "daily" },
+    { loc: `${SITE}/method`, pri: "0.8", freq: "monthly" },
     ...snap.stocks.map((s) => ({ loc: `${SITE}/stock/${slug(s.t)}`, pri: "0.7", freq: "daily" }))
   ];
   const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
