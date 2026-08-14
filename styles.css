@@ -868,3 +868,52 @@ body.docpage .ghost-btn { text-decoration: none; }
      came to press. */
   .brand span { display: none; }
 }
+
+/* ============================================== allowance and the wall ===
+   The count sits beside the data age rather than in the card, so it is
+   available without ever competing with the numbers someone is reading. */
+
+.allowance {
+  margin-left: 10px;
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+  color: var(--ink-muted);
+}
+.allowance.is-low { color: var(--warning); }
+
+/* A locked card carries no data at all: no blurred text to lift out of the
+   DOM, no invented numbers. Just the shape of a card and a lock. */
+.card.is-locked {
+  display: grid;
+  place-items: center;
+  background:
+    repeating-linear-gradient(135deg,
+      var(--surface-1) 0 14px, var(--surface-2) 14px 28px);
+}
+.lock-mark {
+  width: 46px; height: 46px;
+  border-radius: 50%;
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  position: relative;
+  opacity: .55;
+}
+.lock-mark::before {
+  content: "";
+  position: absolute; inset: 0;
+  margin: auto;
+  width: 15px; height: 12px;
+  border-radius: 2px;
+  background: var(--ink-muted);
+  transform: translateY(3px);
+}
+.lock-mark::after {
+  content: "";
+  position: absolute; inset: 0;
+  margin: auto;
+  width: 15px; height: 15px;
+  border: 2.5px solid var(--ink-muted);
+  border-radius: 50% 50% 0 0;
+  border-bottom: 0;
+  transform: translateY(-6px) scale(.62);
+}

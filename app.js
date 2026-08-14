@@ -19,6 +19,7 @@ import {
   splitAdjustShares, shareCountNote
 } from "./lib/analysis.mjs";
 import * as auth from "./lib/auth.mjs";
+import * as tier from "./lib/tier.mjs";
 
 /* ---------------------------------------------------------------- storage */
 
@@ -43,6 +44,8 @@ var state = {
   details: {},            /* lazy-loaded 10-K contents, keyed by ticker */
   updated: null,
   user:    null,          /* set once auth resolves; null means signed out */
+  tier:    "anon",        /* anon | free | member, resolved after auth */
+  viewed:  null,          /* distinct companies opened, counted against the allowance */
   authPending: false,     /* true while we are still finding out */
   busy:    false
 };
@@ -177,16 +180,87 @@ function renderDeck() {
     return;
   }
 
+  /* The allowance is spent on distinct companies, so going back over ones
+     already seen costs nothing. It is charged at the moment a card is about
+     to be rendered, not when it is swiped, because looking is the thing
+     being metered. */
+  var next = state.deck[state.cursor];
+  if (!tier.withinAllowance(state.viewed, next, state.tier)) { showWall(); return; }
+  tier.recordViewed(state.viewed, next);
+
   deckMsg.hidden = true;
 
   var n = Math.min(VISIBLE, remaining);
   for (var depth = n - 1; depth >= 0; depth--) {
     var ticker = state.deck[state.cursor + depth];
-    var node = makeCard(state.byTicker[ticker], depth);
+    /* Only the top card is guaranteed inside the allowance. The one behind it
+       is a blurred placeholder rather than a real card, so nothing readable
+       is ever put in the DOM for a company this person has not paid to see. */
+    var allowed = tier.withinAllowance(state.viewed, ticker, state.tier);
+    var node = allowed ? makeCard(state.byTicker[ticker], depth) : makeLockedCard(depth);
     deckEl.appendChild(node);
-    cards.unshift({ node: node, ticker: ticker, depth: depth });
+    cards.unshift({ node: node, ticker: ticker, depth: depth, locked: !allowed });
   }
   attachDrag(cards[0]);
+  renderAllowance();
+}
+
+/* What a visitor sees when the allowance runs out. Two different messages:
+   somebody who has not signed in is one email away from four times as many,
+   which is a much easier ask than a card number. */
+function showWall() {
+  cards.forEach(function (c) { c.node.remove(); });
+  cards = [];
+
+  var seen = state.viewed.size;
+  if (state.tier === "anon") {
+    showMessage(
+      "You have seen " + seen + " of " + state.all.length,
+      "Create a free account and the next <b>" + (tier.LIMITS.free - tier.LIMITS.anon) +
+      "</b> are yours. No card, just an email address.",
+      [
+        { label: "Create a free account", onClick: function () { openAuth(); } },
+        { label: "See what a membership includes", kind: "link",
+          onClick: function () { location.href = "/pricing"; } }
+      ]
+    );
+  } else {
+    showMessage(
+      "You have seen " + seen + " of " + state.all.length,
+      "Membership opens the remaining <b>" + (state.all.length - seen) +
+      "</b>, plus screens, search and earnings alerts on everything in your cart.",
+      [
+        { label: "See what membership includes", onClick: function () { location.href = "/pricing"; } },
+        { label: "Keep my cart and stop here", kind: "link",
+          onClick: function () { renderCart(); openDialog($("#dlgCart")); } }
+      ]
+    );
+  }
+}
+
+/* Deliberately empty. A blurred real card invites someone to read it out of
+   the DOM, and a fake one with made-up numbers on a finance site is worse
+   than either. */
+function makeLockedCard(depth) {
+  var art = el("article", "card is-locked" + (depth ? " is-behind" : ""));
+  art.style.transform = stackTransform(depth);
+  art.setAttribute("aria-hidden", "true");
+  art.appendChild(el("div", "lock-mark"));
+  return art;
+}
+
+/* A quiet count, so running out is never a surprise. Hidden for members. */
+function renderAllowance() {
+  var box = $("#allowance");
+  if (!box) return;
+  var left = tier.remainingFor(state.viewed, state.tier);
+  if (left === Infinity) { box.hidden = true; return; }
+  box.hidden = false;
+  box.textContent = left > 0
+    ? left + (left === 1 ? " company left" : " companies left") +
+      (state.tier === "anon" ? " · sign in for more" : "")
+    : "No companies left";
+  box.classList.toggle("is-low", left <= 3);
 }
 
 function stackTransform(depth) {
@@ -666,6 +740,23 @@ function addToCart(s) {
   if (!s) return;
   var existing = state.cart.filter(function (c) { return c.t === s.t; })[0];
   if (existing) { flashCart(); return; }
+
+  var cap = tier.featuresFor(state.tier).cart;
+  if (state.cart.length >= cap) {
+    showMessage(
+      "Your cart is full at " + cap,
+      state.tier === "anon"
+        ? "A free account holds <b>" + tier.FEATURES.free.cart + "</b>. Membership holds as many as you like."
+        : "Membership removes the limit, and emails you when anything in the cart reports.",
+      [
+        { label: state.tier === "anon" ? "Create a free account" : "See membership",
+          onClick: function () { state.tier === "anon" ? openAuth() : (location.href = "/pricing"); } },
+        { label: "Empty a slot instead", kind: "link",
+          onClick: function () { renderCart(); openDialog($("#dlgCart")); } }
+      ]
+    );
+    return;
+  }
   state.cart.unshift({
     t: s.t, n: s.n, sector: s.s,
     addedAt: new Date().toISOString(),
@@ -1360,6 +1451,25 @@ function openAuth() {
   openDialog($("#dlgAuth"));
 }
 
+/* One place decides the tier, and every path that could change it calls here.
+   Re-rendering afterwards matters: someone who pays in another tab should see
+   the wall lift without reloading. */
+function refreshTier() {
+  var before = state.tier;
+  if (!state.user) {
+    state.tier = "anon";
+    if (before !== state.tier) { renderDeck(); renderCartCount(); }
+    return;
+  }
+  auth.getClient().then(function (client) {
+    return tier.tierFor(client, state.user);
+  }).then(function (t) {
+    state.tier = t || "free";
+    if (state.tier !== before) { renderDeck(); renderCartCount(); }
+    else renderAllowance();
+  });
+}
+
 function wireAuth() {
   if (!auth.isConfigured()) return;
 
@@ -1412,6 +1522,7 @@ function wireAuth() {
     renderAuthButton();
     setSyncNote("saved");
     state.authPending = false;
+    refreshTier();
     if (user) {
       auth.tidyUrl();
       adoptAccountCart();
@@ -1427,6 +1538,7 @@ function wireAuth() {
   auth.currentUser().then(function (user) {
     state.authPending = false;
     state.user = user;
+    refreshTier();
     renderAuthButton();
     auth.tidyUrl();
     if (user) adoptAccountCart();
@@ -1434,6 +1546,7 @@ function wireAuth() {
 }
 
 function init() {
+  state.viewed = tier.loadViewed();
   wire();
   /* Decided synchronously, before any network call: either a session is already
      in storage or this page load is the return leg of a sign-in link. Either

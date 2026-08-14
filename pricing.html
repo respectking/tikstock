@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Membership | StockOrNot</title>
+<meta name="description" content="What a StockOrNot membership includes, what it costs, and what stays free. Every S&P 500 company, screens, search, and an email when anything in your cart reports." />
+<link rel="canonical" href="https://stockornot.com/pricing" />
+<meta name="color-scheme" content="light" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="StockOrNot membership" />
+<meta property="og:description" content="Every company in the index, screens, search and earnings alerts. $9 a month, or $79 a year." />
+<meta property="og:url" content="https://stockornot.com/pricing" />
+<link rel="icon" href="/favicon.svg" />
+
+<style>
+/* Same treatment as /method, and for the same reason: this is a page you read
+   and decide from, not an interface you operate. Paper, serif, one column. */
+
+:root {
+  --paper:  #f7f5f0;
+  --ink:    #16150f;
+  --ink-2:  #4a483f;
+  --ink-3:  #78756a;
+  --rule:   #d4d0c4;
+  --rule-2: #16150f;
+  --accent: #1a4f8a;
+  --good:   #2c6e3f;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font: 400 19px/1.62 Georgia, "Iowan Old Style", "Times New Roman", serif;
+  padding: 0 22px 96px;
+}
+.wrap { max-width: 40rem; margin: 0 auto; }
+
+.masthead { display: flex; align-items: center; gap: 10px; padding: 26px 0 12px; border-bottom: 2px solid var(--rule-2); }
+.masthead a { display: flex; align-items: center; gap: 10px; color: inherit; text-decoration: none; }
+.masthead svg { width: 26px; height: 26px; }
+.masthead .name { font-size: 21px; letter-spacing: -0.015em; }
+.masthead .name b { font-weight: 700; }
+.masthead .section { margin-left: auto; font: 600 11px/1 ui-sans-serif, system-ui, sans-serif; letter-spacing: .22em; text-transform: uppercase; color: var(--ink-3); }
+
+h1 { margin: 30px 0 0; font-size: clamp(32px, 7vw, 44px); line-height: 1.08; font-weight: 700; letter-spacing: -0.022em; }
+.standfirst { margin: 15px 0 0; font-size: 20px; line-height: 1.5; color: var(--ink-2); max-width: 34rem; }
+hr.rule { border: 0; border-top: 1px solid var(--rule); margin: 32px 0; }
+p { margin: 15px 0 0; }
+a { color: var(--accent); text-underline-offset: 2px; }
+
+h2 { margin: 44px 0 0; font: 700 12px/1 ui-sans-serif, system-ui, sans-serif; letter-spacing: .2em; text-transform: uppercase; color: var(--ink-3); padding-bottom: 7px; border-bottom: 1px solid var(--rule); }
+
+/* ------------------------------------------------------------ the tiers */
+
+.tiers { display: grid; gap: 18px; margin: 24px 0 0; }
+@media (min-width: 720px) { .tiers { grid-template-columns: 1fr 1fr; align-items: start; } }
+
+.tier { border: 1px solid var(--rule); background: #fffdf8; padding: 22px 22px 24px; }
+.tier.is-paid { border: 2px solid var(--rule-2); }
+
+.tier .kicker { font: 600 11px/1 ui-sans-serif, system-ui, sans-serif; letter-spacing: .2em; text-transform: uppercase; color: var(--ink-3); }
+.tier h3 { margin: 12px 0 0; font-size: 26px; font-weight: 700; letter-spacing: -0.015em; }
+.tier .price { margin: 6px 0 0; font-size: 34px; font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.tier .price small { font-size: 16px; font-weight: 400; color: var(--ink-3); letter-spacing: 0; }
+.tier .alt { margin: 2px 0 0; font: 400 14px/1.4 ui-sans-serif, system-ui, sans-serif; color: var(--ink-3); }
+
+.tier ul { list-style: none; margin: 18px 0 0; padding: 0; font: 400 15.5px/1.45 ui-sans-serif, system-ui, sans-serif; }
+.tier li { padding: 8px 0 8px 24px; border-bottom: 1px solid var(--rule); position: relative; }
+.tier li:last-child { border-bottom: 0; }
+.tier li::before { content: "·"; position: absolute; left: 6px; top: 6px; font-size: 20px; color: var(--ink-3); }
+.tier.is-paid li::before { content: "✓"; font-size: 13px; top: 9px; left: 3px; color: var(--good); font-weight: 700; }
+.tier li b { font-weight: 700; }
+
+.cta {
+  display: block; width: 100%; margin: 20px 0 0; padding: 13px 18px;
+  border: 2px solid var(--rule-2); background: var(--rule-2); color: var(--paper);
+  font: 600 14px/1 ui-sans-serif, system-ui, sans-serif; letter-spacing: .04em;
+  text-align: center; text-decoration: none; cursor: pointer;
+}
+.cta.ghost { background: transparent; color: var(--ink); }
+.cta[aria-disabled="true"] { opacity: .45; cursor: default; }
+.cta-note { margin: 9px 0 0; font: 400 13px/1.45 ui-sans-serif, system-ui, sans-serif; color: var(--ink-3); text-align: center; }
+
+/* ------------------------------------------------------------- the rest */
+
+.qa { margin: 22px 0 0; }
+.qa dt { font-weight: 700; margin: 22px 0 0; }
+.qa dd { margin: 6px 0 0; color: var(--ink-2); }
+
+.notice {
+  margin: 30px 0 0; padding: 16px 18px;
+  border: 1px solid var(--rule); border-left: 3px solid var(--accent);
+  background: #fffdf8;
+  font: 400 15.5px/1.55 ui-sans-serif, system-ui, sans-serif; color: var(--ink-2);
+}
+.notice b { color: var(--ink); }
+
+footer { margin-top: 54px; padding-top: 18px; border-top: 2px solid var(--rule-2); font: 400 14px/1.55 ui-sans-serif, system-ui, sans-serif; color: var(--ink-3); }
+footer a { color: var(--ink-2); }
+
+@media (max-width: 480px) { body { font-size: 18px; padding-inline: 18px; } }
+</style>
+</head>
+
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <a href="/">
+      <svg viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="22" fill="#16150f"/><path d="M20 66 L40 44 L56 58 L80 30" stroke="#f7f5f0" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span class="name">Stock<b>OrNot</b></span>
+    </a>
+    <span class="section">Membership</span>
+  </header>
+
+  <h1>Read five. Then decide if the rest is worth nine dollars.</h1>
+
+  <p class="standfirst">Everyone gets a real look before anything is asked for. A free account
+  takes that to twenty. Membership opens all 501 and adds the things you cannot get from a
+  static page.</p>
+
+  <hr class="rule">
+
+  <div class="tiers">
+
+    <section class="tier">
+      <p class="kicker">Free</p>
+      <h3>An account</h3>
+      <p class="price">$0</p>
+      <p class="alt">An email address, no card</p>
+      <ul>
+        <li><b>20 companies</b>, in full</li>
+        <li>Cart of 10, synced across your devices</li>
+        <li>Every company page on the open web</li>
+        <li>The score, and how it was built</li>
+        <li>Export your cart to CSV</li>
+      </ul>
+      <a class="cta ghost" href="/">Start swiping</a>
+      <p class="cta-note">Five companies before we ask for anything.</p>
+    </section>
+
+    <section class="tier is-paid">
+      <p class="kicker">Membership</p>
+      <h3>All of it</h3>
+      <p class="price">$9<small> / month</small></p>
+      <p class="alt">or $79 a year, two months free</p>
+      <ul>
+        <li><b>All 501 companies</b>, no counter</li>
+        <li><b>Screens</b> — everything under 15× earnings with rising revenue, and the rest</li>
+        <li><b>Search</b> any company by name or ticker</li>
+        <li><b>Earnings alerts</b> — an email when anything in your cart reports</li>
+        <li><b>Move alerts</b> — told when a holding jumps or falls sharply</li>
+        <li>Unlimited cart, with notes</li>
+        <li>Five-year financials and every risk factor, on every company</li>
+      </ul>
+      <a class="cta" id="join" href="/">Join</a>
+      <p class="cta-note" id="joinNote">Cancel any time, from your account page.</p>
+    </section>
+
+  </div>
+
+  <h2>What stays free, permanently</h2>
+
+  <p>Every company page — <a href="/stock/">all 503 of them</a> — stays open to anyone, with the
+  score, the case for and against, and the next earnings date. So does
+  <a href="/method">the method</a>, including the part listing everything the score cannot see.
+  Those pages are how people find this site, and putting them behind a payment would be both
+  self-defeating and a little dishonest.</p>
+
+  <h2>Questions</h2>
+
+  <dl class="qa">
+    <dt>Why is there a limit at all?</dt>
+    <dd>Reading five hundred filings a day costs money, and the alternative to a subscription is
+    advertising, which on a finance site means being paid by whoever wants you to buy something.
+    A price you can see is cleaner than one you cannot.</dd>
+
+    <dt>Does the count reset?</dt>
+    <dd>No, and companies you have already opened stay open for good. Taking back something you
+    have already read would be worse than never showing it.</dd>
+
+    <dt>Is this investment advice?</dt>
+    <dd>No. It is a reading of public filings with the arithmetic shown, and
+    <a href="/method">the method page</a> lists its own blind spots at length. Nobody here is a
+    licensed adviser, and nothing on the site is a recommendation to buy or sell.</dd>
+
+    <dt>Where does the data come from?</dt>
+    <dd>Company filings at SEC EDGAR, and market data from Finnhub. Rebuilt every weekday
+    evening after the American close.</dd>
+
+    <dt>Can I get a refund?</dt>
+    <dd>Yes. Email and it is returned, no argument, no retention script.</dd>
+  </dl>
+
+  <div class="notice" id="notLive">
+    <b>Not open yet.</b> Membership is not taking payment while the market data is being moved
+    onto a commercial licence, which has to happen before anyone can be charged for it. The free
+    tiers work today. Leave your email on the site and you will be told when it opens.
+  </div>
+
+  <footer>
+    <p><b>Not investment advice.</b> Figures come from Finnhub or the company's own SEC filings
+    and may be stale, mis-parsed or wrong. Read the actual filing before you buy anything.
+    <a href="/method">How the score works</a> · <a href="/">Back to the deck</a></p>
+  </footer>
+
+</div>
+
+<script type="module">
+  /* The button cannot take money yet, and pretending otherwise would collect
+     card details for a thing that does not exist. It says so plainly instead. */
+  const join = document.getElementById("join");
+  join.setAttribute("aria-disabled", "true");
+  join.textContent = "Opening soon";
+  join.addEventListener("click", (e) => { e.preventDefault(); location.href = "/"; });
+</script>
+</body>
+</html>
