@@ -22,7 +22,7 @@ import * as auth from "./lib/auth.mjs";
 
 /* ---------------------------------------------------------------- storage */
 
-var LS = { cart: "ts.cart", seen: "ts.seen", filter: "ts.filter" };
+var LS = { cart: "ts.cart", seen: "ts.seen" };
 
 function load(k, fb) {
   try { var raw = localStorage.getItem(k); return raw === null ? fb : JSON.parse(raw); }
@@ -38,7 +38,7 @@ var state = {
   cursor:  0,
   cart:    load(LS.cart, []),
   seen:    load(LS.seen, []),
-  filter:  load(LS.filter, { screen: "all", sector: "all", showSeen: false }),
+  showSeen: false,        /* set only by the end-of-deck prompt, never saved */
   byTicker: {},
   details: {},            /* lazy-loaded 10-K contents, keyed by ticker */
   updated: null,
@@ -88,25 +88,6 @@ function relTime(iso) {
   return Math.round(hrs / 24) + " days ago";
 }
 
-/* ============================================================ SCREENS ==== */
-
-var SCREENS = [
-  { id: "all",      label: "Everything",      test: function () { return true; } },
-  { id: "cheap",    label: "Low P/E",         test: function (s) { return num(s.pe) && s.pe > 0 && s.pe < 15; } },
-  { id: "growth",   label: "Fast growing",    test: function (s) { return num(s.rg) && s.rg >= 15; } },
-  { id: "quality",  label: "High margin",     test: function (s) { return num(s.nm) && s.nm >= 18; } },
-  { id: "income",   label: "Pays 2%+",        test: function (s) { return num(s.dy) && s.dy >= 2; } },
-  { id: "cashrich", label: "Net cash",        test: function (s) { return num(s.fin && s.fin.cash) && num(s.fin.debt) && s.fin.cash > s.fin.debt; } },
-  { id: "dip",      label: "Near 52wk low",   test: function (s) { var p = rangePos(s); return p !== null && p <= 0.25; } },
-  { id: "soon",     label: "Earnings < 30d",  test: function (s) { var d = s.earnings && daysUntil(s.earnings.date); return d !== null && d >= 0 && d <= 30; } },
-  { id: "mega",     label: "Mega caps",       test: function (s) { return num(s.mc) && s.mc >= 200000; } }
-];
-
-function screenById(id) {
-  for (var i = 0; i < SCREENS.length; i++) if (SCREENS[i].id === id) return SCREENS[i];
-  return SCREENS[0];
-}
-
 /* ============================================================== DATA ===== */
 
 function loadSnapshot() {
@@ -147,11 +128,10 @@ var VISIBLE  = 2;
 var cards    = [];          /* [{node, ticker, depth}], top first */
 
 function buildDeck() {
-  var scr = screenById(state.filter.screen);
+  /* The only rule left: a company you have already swiped does not come back
+     until you ask for it. Everything else is in the deck, in random order. */
   var pool = state.all.filter(function (s) {
-    if (state.filter.sector !== "all" && s.s !== state.filter.sector) return false;
-    if (!state.filter.showSeen && seenSet.has(s.t)) return false;
-    return scr.test(s);
+    return state.showSeen || !seenSet.has(s.t);
   });
   state.deck = shuffle(pool.map(function (s) { return s.t; }));
   state.cursor = 0;
@@ -176,21 +156,20 @@ function renderDeck() {
   cards = [];
 
   var remaining = state.deck.length - state.cursor;
-  $("#deckPos").textContent = remaining
-    ? (state.cursor + 1) + " of " + state.deck.length
-    : "0 left";
 
   if (remaining === 0) {
-    var seenCount = seenSet.size;
     showMessage(
-      "Nothing left in this filter",
-      "You have been through every company matching it. There are <b>" + state.all.length +
-      "</b> in the deck overall and you have swiped <b>" + seenCount + "</b>.",
+      "That is all " + state.all.length + " of them",
+      "You have been through the whole index. Your cart is still there.",
       [
-        { label: "Change the filter", onClick: function () { openDialog($("#dlgFilter")); } },
-        { label: "Show swiped companies again", kind: "link", onClick: function () {
-            state.filter.showSeen = true; save(LS.filter, state.filter);
-            $("#showSeen").checked = true;
+        { label: "Go through them again", onClick: function () {
+            state.seen = []; seenSet = new Set();
+            save(LS.seen, state.seen);
+            state.showSeen = false;
+            buildDeck(); renderDeck();
+        } },
+        { label: "Show the ones I passed on", kind: "link", onClick: function () {
+            state.showSeen = true;
             buildDeck(); renderDeck();
         } }
       ]
@@ -809,75 +788,7 @@ function exportCsv() {
   setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
 }
 
-/* ============================================================ FILTERS ==== */
 
-function renderFilterUI() {
-  var screens = $("#screenChips");
-  screens.innerHTML = "";
-  SCREENS.forEach(function (sc) {
-    var count = state.all.filter(sc.test).length;
-    var b = el("button", "chip", sc.label + " (" + count + ")");
-    b.type = "button";
-    b.setAttribute("role", "radio");
-    b.setAttribute("aria-checked", String(sc.id === state.filter.screen));
-    b.addEventListener("click", function () {
-      state.filter.screen = sc.id;
-      save(LS.filter, state.filter);
-      renderFilterUI(); updateFilterLabel(); buildDeck(); renderDeck();
-    });
-    screens.appendChild(b);
-  });
-
-  var sectors = ["all"].concat(
-    Object.keys(state.all.reduce(function (acc, s) { acc[s.s] = 1; return acc; }, {})).sort()
-  );
-  var box = $("#sectorChips");
-  box.innerHTML = "";
-  sectors.forEach(function (sec) {
-    var count = sec === "all" ? state.all.length : state.all.filter(function (s) { return s.s === sec; }).length;
-    var b = el("button", "chip", (sec === "all" ? "Every sector" : sec) + " (" + count + ")");
-    b.type = "button";
-    b.setAttribute("role", "radio");
-    b.setAttribute("aria-checked", String(sec === state.filter.sector));
-    b.addEventListener("click", function () {
-      state.filter.sector = sec;
-      save(LS.filter, state.filter);
-      renderFilterUI(); updateFilterLabel(); buildDeck(); renderDeck();
-    });
-    box.appendChild(b);
-  });
-}
-
-function updateFilterLabel() {
-  var parts = [];
-  if (state.filter.screen !== "all") parts.push(screenById(state.filter.screen).label);
-  if (state.filter.sector !== "all") parts.push(state.filter.sector);
-  $("#filterLabel").textContent = parts.length ? parts.join(" · ") : "All " + state.all.length;
-}
-
-function renderSearch(q) {
-  var box = $("#searchResults");
-  box.innerHTML = "";
-  q = (q || "").trim().toLowerCase();
-  if (q.length < 1) return;
-  var hits = state.all.filter(function (s) {
-    return s.t.toLowerCase().indexOf(q) === 0 || s.n.toLowerCase().indexOf(q) !== -1;
-  }).slice(0, 8);
-  if (!hits.length) { box.appendChild(el("p", "empty-note", "No match in the S&P 500.")); return; }
-  hits.forEach(function (s) {
-    var b = el("button", "search-hit");
-    b.type = "button";
-    b.innerHTML = '<b>' + s.t + '</b><span>' + s.n + '</span>';
-    b.addEventListener("click", function () {
-      /* put this company at the front of the current deck */
-      state.deck = [s.t].concat(state.deck.filter(function (t) { return t !== s.t; }));
-      state.cursor = 0;
-      renderDeck();
-      closeDialog($("#dlgFilter"));
-    });
-    box.appendChild(b);
-  });
-}
 
 /* ====================================================== DETAIL SHEET =====
    Everything that doesn't fit on the card: a five-year price chart, the
@@ -1348,7 +1259,6 @@ function setupScreen(reason) {
       } }
     ]
   );
-  $("#deckPos").textContent = "—";
 }
 
 function repoUrl() {
@@ -1363,7 +1273,6 @@ function repoUrl() {
 function wire() {
 
   $("#btnCart").addEventListener("click", function () { renderCart(); openDialog($("#dlgCart")); });
-  $("#btnFilter").addEventListener("click", function () { openDialog($("#dlgFilter")); });
 
   Array.prototype.forEach.call(document.querySelectorAll("[data-close]"), function (b) {
     b.addEventListener("click", function () { closeDialog(b.closest("dialog")); });
@@ -1380,19 +1289,6 @@ function wire() {
     renderCart(); renderCartCount();
   });
 
-  $("#showSeen").addEventListener("change", function () {
-    state.filter.showSeen = this.checked;
-    save(LS.filter, state.filter);
-    buildDeck(); renderDeck();
-  });
-  $("#btnResetSeen").addEventListener("click", function () {
-    state.seen = []; seenSet = new Set();
-    save(LS.seen, state.seen);
-    buildDeck(); renderDeck();
-  });
-
-  var search = $("#searchBox");
-  search.addEventListener("input", function () { renderSearch(search.value); });
 
   $("#detailAdd").addEventListener("click", function () {
     closeDialog($("#dlgDetail"));
@@ -1546,7 +1442,6 @@ function init() {
   wireAuth();
   renderAuthButton();
   renderCartCount();
-  $("#showSeen").checked = !!state.filter.showSeen;
   showMessage("Loading the S&P 500…", "Pulling the latest snapshot.", []);
 
   loadSnapshot()
@@ -1561,8 +1456,6 @@ function init() {
       if (!snap) return;
       renderDataAge();
       setInterval(renderDataAge, 60000);
-      renderFilterUI();
-      updateFilterLabel();
       buildDeck();
 
       /* a company page links in with ?t=TICKER — start the deck on that one */

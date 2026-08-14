@@ -26,16 +26,10 @@
   </div>
 
   <div class="topmeta">
-    <span id="deckPos">—</span>
-    <span class="sep" aria-hidden="true">·</span>
     <span id="dataAge">loading…</span>
   </div>
 
   <div class="topbar-actions">
-    <button type="button" class="ghost-btn" id="btnFilter" aria-haspopup="dialog">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18M6 12h12M10 19h4"/></svg>
-      <span id="filterLabel">All 500</span>
-    </button>
     <button type="button" class="ghost-btn" id="btnAuth" aria-haspopup="dialog" hidden>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
       <span id="authLabel">Sign in</span>
@@ -185,46 +179,6 @@
   </div>
 </dialog>
 
-<!-- ============================ FILTERS ============================ -->
-<dialog class="sheet" id="dlgFilter" aria-labelledby="filterTitle">
-  <div class="sheet-inner">
-    <header class="sheet-head">
-      <h2 id="filterTitle">Filter the deck</h2>
-      <button type="button" class="icon-btn" data-close aria-label="Close filters">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
-      </button>
-    </header>
-
-    <div class="sheet-body">
-      <section class="field">
-        <h3>Jump to a company</h3>
-        <input type="search" id="searchBox" placeholder="Ticker or name…" autocomplete="off" spellcheck="false" />
-        <div class="search-results" id="searchResults"></div>
-      </section>
-
-      <section class="field">
-        <h3>Screen</h3>
-        <p class="hint">Each screen is a plain rule on the latest numbers.</p>
-        <div class="chips" id="screenChips" role="radiogroup" aria-label="Screen"></div>
-      </section>
-
-      <section class="field">
-        <h3>Sector</h3>
-        <div class="chips" id="sectorChips" role="radiogroup" aria-label="Sector"></div>
-      </section>
-
-      <section class="field">
-        <h3>Already seen</h3>
-        <p class="hint">Companies you have swiped are hidden by default.</p>
-        <label class="switch">
-          <input type="checkbox" id="showSeen" />
-          <span>Show them again</span>
-        </label>
-        <button type="button" class="link-btn danger" id="btnResetSeen">Reset swipe history</button>
-      </section>
-    </div>
-  </div>
-</dialog>
 
 <footer class="sitefoot">
   <p>
