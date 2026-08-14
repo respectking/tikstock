@@ -40,3 +40,42 @@ create policy "delete own cart" on public.carts for delete using (auth.uid() = u
 -- ---------------------------------------------------------------------------
 -- select relname, relrowsecurity from pg_class where relname = 'carts';
 -- select policyname, cmd from pg_policies where tablename = 'carts';
+
+-- ===========================================================================
+-- Subscriptions
+--
+-- One row per person, written only by the payment provider's webhook using the
+-- service_role key on the server. The browser can read its own row and nothing
+-- else, and cannot write at all: if a visitor could set status='active' the
+-- paywall would be decoration.
+-- ===========================================================================
+
+create table if not exists public.subscriptions (
+  user_id             uuid primary key references auth.users (id) on delete cascade,
+  status              text        not null default 'none',
+  plan                text,
+  provider_customer   text,
+  current_period_end  timestamptz,
+  updated_at          timestamptz not null default now()
+);
+
+comment on column public.subscriptions.status is
+  'none | trialing | active | past_due | canceled. Only trialing and active grant access.';
+
+alter table public.subscriptions enable row level security;
+
+drop policy if exists "read own subscription" on public.subscriptions;
+
+-- Read only, and only your own. No insert, update or delete policy exists for
+-- ordinary users, so those operations are refused for everyone except the
+-- service_role key, which bypasses RLS and lives only on the server.
+create policy "read own subscription" on public.subscriptions
+  for select using (auth.uid() = user_id);
+
+create index if not exists subscriptions_status_idx on public.subscriptions (status);
+
+-- ---------------------------------------------------------------------------
+-- Check: rowsecurity true, exactly one policy, and it is a SELECT policy.
+-- ---------------------------------------------------------------------------
+-- select relname, relrowsecurity from pg_class where relname = 'subscriptions';
+-- select policyname, cmd from pg_policies where tablename = 'subscriptions';
