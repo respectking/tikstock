@@ -1,6 +1,6 @@
 {
-  "ranAt": "2026-08-17T23:24:50.045Z",
-  "snapshotUpdated": "2026-08-17T23:24:49.827Z",
+  "ranAt": "2026-08-18T23:27:47.648Z",
+  "snapshotUpdated": "2026-08-18T23:27:47.306Z",
   "companies": 501,
   "deep": {
     "present": 501,
@@ -12,11 +12,12 @@
     {
       "level": "warn",
       "code": "range-inconsistent",
-      "msg": "1 companies have a 52-week range that disagrees with the price.",
+      "msg": "2 companies have a 52-week range that disagrees with the price.",
       "tickers": [
-        "BRK.B"
+        "BRK.B",
+        "EA"
       ],
-      "count": 1
+      "count": 2
     },
     {
       "level": "warn",
