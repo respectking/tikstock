@@ -1,6 +1,6 @@
 {
-  "ranAt": "2026-08-18T23:27:47.648Z",
-  "snapshotUpdated": "2026-08-18T23:27:47.306Z",
+  "ranAt": "2026-08-19T23:28:18.045Z",
+  "snapshotUpdated": "2026-08-19T23:28:17.811Z",
   "companies": 501,
   "deep": {
     "present": 501,
@@ -12,12 +12,22 @@
     {
       "level": "warn",
       "code": "range-inconsistent",
-      "msg": "2 companies have a 52-week range that disagrees with the price.",
+      "msg": "3 companies have a 52-week range that disagrees with the price.",
       "tickers": [
         "BRK.B",
-        "EA"
+        "MRK",
+        "MRNA"
       ],
-      "count": 2
+      "count": 3
+    },
+    {
+      "level": "warn",
+      "code": "price-jump",
+      "msg": "1 companies moved more than 25% since the last run.",
+      "tickers": [
+        "MRNA 62.96→174.38"
+      ],
+      "count": 1
     },
     {
       "level": "warn",
