@@ -1,6 +1,6 @@
 {
-  "ranAt": "2026-08-27T04:06:53.641Z",
-  "snapshotUpdated": "2026-08-27T04:06:53.343Z",
+  "ranAt": "2026-08-28T06:54:19.787Z",
+  "snapshotUpdated": "2026-08-28T06:54:19.463Z",
   "companies": 501,
   "deep": {
     "present": 501,
@@ -46,14 +46,13 @@
     {
       "level": "warn",
       "code": "earnings-missing",
-      "msg": "4 companies have no earnings.",
+      "msg": "3 companies have no earnings.",
       "tickers": [
-        "BDX",
         "SATS",
         "Q",
         "SWKS"
       ],
-      "count": 4
+      "count": 3
     },
     {
       "level": "warn",
