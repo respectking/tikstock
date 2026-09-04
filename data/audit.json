@@ -1,6 +1,6 @@
 {
-  "ranAt": "2026-09-03T01:09:12.958Z",
-  "snapshotUpdated": "2026-09-03T01:09:12.706Z",
+  "ranAt": "2026-09-04T01:05:20.067Z",
+  "snapshotUpdated": "2026-09-04T01:05:19.750Z",
   "companies": 501,
   "deep": {
     "present": 501,
@@ -12,9 +12,19 @@
     {
       "level": "warn",
       "code": "range-inconsistent",
-      "msg": "1 companies have a 52-week range that disagrees with the price.",
+      "msg": "2 companies have a 52-week range that disagrees with the price.",
       "tickers": [
+        "APH",
         "BRK.B"
+      ],
+      "count": 2
+    },
+    {
+      "level": "warn",
+      "code": "price-jump",
+      "msg": "1 companies moved more than 25% since the last run.",
+      "tickers": [
+        "APH 160.08→82.07"
       ],
       "count": 1
     },
